@@ -10,7 +10,13 @@ logger = logging.getLogger(__name__)
 
 
 def fetch_full_text(url: str, timeout: int = 30) -> Optional[str]:
-    """抓取网页正文并转换为Markdown格式，带指数退避重试"""
+    """抓取网页正文并转换为Markdown格式，带指数退避重试
+
+    返回值:
+    - 成功时返回Markdown格式的文章内容
+    - 403错误时返回None，表示需要使用RSS的summary作为回退
+    - 其他错误时返回空字符串，表示完全失败
+    """
     max_retries = 5
     base_delay = 2  # 基础延迟2秒
 
@@ -41,11 +47,22 @@ def fetch_full_text(url: str, timeout: int = 30) -> Optional[str]:
                         logger.error(f"  达到最大重试次数，跳过")
                         return None
 
+                # 处理403错误 - 访问被拒绝
+                if response.status_code == 403:
+                    logger.warning(f"  遇到403错误，访问被拒绝")
+                    if attempt < max_retries - 1:
+                        logger.info(f"  尝试重试...")
+                        continue
+                    else:
+                        logger.warning(f"  403错误持续存在，将使用RSS摘要作为回退")
+                        # 返回None，表示403错误，应该使用RSS summary作为回退
+                        return None
+
                 response.raise_for_status()
                 downloaded = response.text
 
             if not downloaded:
-                return None
+                return ""
 
             # 使用trafilatura提取正文并转为Markdown
             content = trafilatura.extract(
@@ -57,16 +74,28 @@ def fetch_full_text(url: str, timeout: int = 30) -> Optional[str]:
             return content
 
         except httpx.HTTPStatusError as e:
+            # 处理403错误
+            if e.response.status_code == 403:
+                if attempt < max_retries - 1:
+                    logger.info(f"  403错误，尝试重试...")
+                    continue
+                else:
+                    logger.warning(f"  403错误持续，将使用RSS摘要作为回退")
+                    # 返回None，表示403错误，应该使用RSS summary作为回退
+                    return None
+
+            # 处理429速率限制
             if e.response.status_code == 429 and attempt < max_retries - 1:
                 continue
+
             logger.warning(f"  抓取网页失败 {url}: {e}")
-            return None
+            return ""
         except Exception as e:
             if attempt == max_retries - 1:
                 logger.warning(f"  抓取网页失败 {url}: {e}")
-                return None
+                return ""
 
-    return None
+    return ""
 
 
 def parse_feed(source_url: str, timeout: int = 30) -> Optional[Dict[str, Any]]:
@@ -99,28 +128,50 @@ def extract_article_content(entry: Dict[str, Any], feed_url: str) -> tuple[str, 
     """从RSS条目中提取或抓取文章内容
 
     返回: (content, method) 元组
-    method: 'rss_content', 'rss_summary', 'fetched', 'failed'
+    method: 'rss_content', 'rss_summary', 'rss_summary_403', 'fetched', 'failed'
+
+    说明:
+    - 'rss_content': 直接使用RSS中的content字段
+    - 'rss_summary': 使用RSS中的summary字段
+    - 'rss_summary_403': 403错误回退，使用RSS summary并保存URL
+    - 'fetched': 成功抓取全文
+    - 'failed': 完全失败，无内容
     """
+    url = getattr(entry, 'link', '')
+
     # 1. 优先使用RSS中的content
     if hasattr(entry, 'content') and entry.content:
         content = entry.content[0].value
         return content, 'rss_content'
 
-    # 2. 其次使用summary
+    # 2. 其次使用summary，并尝试抓取全文
     if hasattr(entry, 'summary') and entry.summary:
         summary = entry.summary
+
         # 尝试抓取全文作为补充
-        if hasattr(entry, 'link') and entry.link:
-            full_text = fetch_full_text(entry.link)
+        if url:
+            full_text = fetch_full_text(url)
             if full_text:
+                # 成功抓取到全文
                 return full_text, 'fetched'
+            elif full_text is None:
+                # 403错误：使用summary作为回退，并保存URL
+                # 在summary后面添加原文链接
+                fallback_content = f"{summary}\n\n---\n**原文链接**: {url}"
+                return fallback_content, 'rss_summary_403'
+
+        # 没有链接或抓取失败，直接使用summary
         return summary, 'rss_summary'
 
     # 3. 如果只有链接，尝试抓取
-    if hasattr(entry, 'link') and entry.link:
-        full_text = fetch_full_text(entry.link)
+    if url:
+        full_text = fetch_full_text(url)
         if full_text:
             return full_text, 'fetched'
+        elif full_text is None:
+            # 403错误：但没有summary，只保存URL
+            fallback_content = f"**无法获取内容，访问被拒绝 (403)**\n\n**原文链接**: {url}"
+            return fallback_content, 'rss_summary_403'
 
     return "", 'failed'
 
