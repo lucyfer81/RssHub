@@ -1,0 +1,6 @@
+sources:
+  - name: "Example Blog"
+    url: "https://example.com/rss"
+
+  - name: "Tech News"
+    url: "https://news.example.com/feed"
