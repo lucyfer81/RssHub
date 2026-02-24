@@ -1,4 +1,6 @@
 import logging
+import random
+import time
 from typing import Optional, Dict, Any
 import httpx
 import feedparser
@@ -8,32 +10,63 @@ logger = logging.getLogger(__name__)
 
 
 def fetch_full_text(url: str, timeout: int = 30) -> Optional[str]:
-    """抓取网页正文并转换为Markdown格式"""
-    try:
-        # 使用httpx下载网页（支持代理）
-        headers = {
-            "User-Agent": "Mozilla/5.0 (compatible; RSS-Hub/0.1.0; +https://github.com/rss-hub)"
-        }
-        # trust_env=True 会自动从环境变量读取代理设置
-        with httpx.Client(timeout=timeout, trust_env=True, follow_redirects=True) as client:
-            response = client.get(url, headers=headers)
-            response.raise_for_status()
-            downloaded = response.text
+    """抓取网页正文并转换为Markdown格式，带指数退避重试"""
+    max_retries = 5
+    base_delay = 2  # 基础延迟2秒
 
-        if not downloaded:
+    for attempt in range(max_retries):
+        try:
+            # 每次重试前添加指数退避延迟和随机抖动
+            if attempt > 0:
+                jitter = random.uniform(0.5, 1.5)
+                delay = base_delay * (2 ** (attempt - 1)) * jitter
+                logger.info(f"  重试 {attempt + 1}/{max_retries}，等待{delay:.1f}秒...")
+                time.sleep(delay)
+
+            # 使用更真实的User-Agent
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+            }
+
+            # trust_env=True 会自动从环境变量读取代理设置
+            with httpx.Client(timeout=timeout, trust_env=True, follow_redirects=True) as client:
+                response = client.get(url, headers=headers)
+
+                # 处理429速率限制
+                if response.status_code == 429:
+                    logger.warning(f"  遇到429速率限制")
+                    if attempt < max_retries - 1:
+                        continue
+                    else:
+                        logger.error(f"  达到最大重试次数，跳过")
+                        return None
+
+                response.raise_for_status()
+                downloaded = response.text
+
+            if not downloaded:
+                return None
+
+            # 使用trafilatura提取正文并转为Markdown
+            content = trafilatura.extract(
+                downloaded,
+                output_format="markdown",
+                include_comments=False,
+                include_tables=True
+            )
+            return content
+
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 429 and attempt < max_retries - 1:
+                continue
+            logger.warning(f"  抓取网页失败 {url}: {e}")
             return None
+        except Exception as e:
+            if attempt == max_retries - 1:
+                logger.warning(f"  抓取网页失败 {url}: {e}")
+                return None
 
-        # 使用trafilatura提取正文并转为Markdown
-        content = trafilatura.extract(
-            downloaded,
-            output_format="markdown",
-            include_comments=False,
-            include_tables=True
-        )
-        return content
-    except Exception as e:
-        logger.warning(f"抓取网页失败 {url}: {e}")
-        return None
+    return None
 
 
 def parse_feed(source_url: str, timeout: int = 30) -> Optional[Dict[str, Any]]:
