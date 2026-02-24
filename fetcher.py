@@ -1,24 +1,10 @@
 import logging
-import os
 from typing import Optional, Dict, Any
 import httpx
 import feedparser
 import trafilatura
 
 logger = logging.getLogger(__name__)
-
-# 获取代理设置
-HTTP_PROXY = os.environ.get('http_proxy') or os.environ.get('HTTP_PROXY')
-HTTPS_PROXY = os.environ.get('https_proxy') or os.environ.get('HTTPS_PROXY')
-
-PROXIES = {}
-if HTTP_PROXY:
-    PROXIES['http://'] = HTTP_PROXY
-if HTTPS_PROXY:
-    PROXIES['https://'] = HTTPS_PROXY
-
-if PROXIES:
-    logger.info(f"使用代理: {PROXIES}")
 
 
 def fetch_full_text(url: str, timeout: int = 30) -> Optional[str]:
@@ -28,7 +14,8 @@ def fetch_full_text(url: str, timeout: int = 30) -> Optional[str]:
         headers = {
             "User-Agent": "Mozilla/5.0 (compatible; RSS-Hub/0.1.0; +https://github.com/rss-hub)"
         }
-        with httpx.Client(timeout=timeout, proxies=PROXIES if PROXIES else None, follow_redirects=True) as client:
+        # trust_env=True 会自动从环境变量读取代理设置
+        with httpx.Client(timeout=timeout, trust_env=True, follow_redirects=True) as client:
             response = client.get(url, headers=headers)
             response.raise_for_status()
             downloaded = response.text
@@ -57,7 +44,8 @@ def parse_feed(source_url: str, timeout: int = 30) -> Optional[Dict[str, Any]]:
             "User-Agent": "Mozilla/5.0 (compatible; RSS-Hub/0.1.0; +https://github.com/rss-hub)"
         }
 
-        with httpx.Client(timeout=timeout, proxies=PROXIES if PROXIES else None) as client:
+        # trust_env=True 会自动从环境变量读取代理设置
+        with httpx.Client(timeout=timeout, trust_env=True) as client:
             response = client.get(source_url, headers=headers)
             response.raise_for_status()
             feed_content = response.content
