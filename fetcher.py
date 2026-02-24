@@ -1,4 +1,5 @@
 import logging
+import os
 from typing import Optional, Dict, Any
 import httpx
 import feedparser
@@ -6,11 +7,32 @@ import trafilatura
 
 logger = logging.getLogger(__name__)
 
+# 获取代理设置
+HTTP_PROXY = os.environ.get('http_proxy') or os.environ.get('HTTP_PROXY')
+HTTPS_PROXY = os.environ.get('https_proxy') or os.environ.get('HTTPS_PROXY')
 
-def fetch_full_text(url: str, timeout: int = 10) -> Optional[str]:
+PROXIES = {}
+if HTTP_PROXY:
+    PROXIES['http://'] = HTTP_PROXY
+if HTTPS_PROXY:
+    PROXIES['https://'] = HTTPS_PROXY
+
+if PROXIES:
+    logger.info(f"使用代理: {PROXIES}")
+
+
+def fetch_full_text(url: str, timeout: int = 30) -> Optional[str]:
     """抓取网页正文并转换为Markdown格式"""
     try:
-        downloaded = trafilatura.fetch_url(url)
+        # 使用httpx下载网页（支持代理）
+        headers = {
+            "User-Agent": "Mozilla/5.0 (compatible; RSS-Hub/0.1.0; +https://github.com/rss-hub)"
+        }
+        with httpx.Client(timeout=timeout, proxies=PROXIES if PROXIES else None, follow_redirects=True) as client:
+            response = client.get(url, headers=headers)
+            response.raise_for_status()
+            downloaded = response.text
+
         if not downloaded:
             return None
 
@@ -27,7 +49,7 @@ def fetch_full_text(url: str, timeout: int = 10) -> Optional[str]:
         return None
 
 
-def parse_feed(source_url: str, timeout: int = 10) -> Optional[Dict[str, Any]]:
+def parse_feed(source_url: str, timeout: int = 30) -> Optional[Dict[str, Any]]:
     """解析RSS feed"""
     try:
         # 使用httpx获取feed内容，设置User-Agent
@@ -35,7 +57,7 @@ def parse_feed(source_url: str, timeout: int = 10) -> Optional[Dict[str, Any]]:
             "User-Agent": "Mozilla/5.0 (compatible; RSS-Hub/0.1.0; +https://github.com/rss-hub)"
         }
 
-        with httpx.Client(timeout=timeout) as client:
+        with httpx.Client(timeout=timeout, proxies=PROXIES if PROXIES else None) as client:
             response = client.get(source_url, headers=headers)
             response.raise_for_status()
             feed_content = response.content
