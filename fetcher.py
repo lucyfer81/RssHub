@@ -15,7 +15,7 @@ def fetch_full_text(url: str, timeout: int = 10) -> Optional[str]:
             return None
 
         # 使用trafilatura提取正文并转为Markdown
-        content = trafilatura.process(
+        content = trafilatura.extract(
             downloaded,
             output_format="markdown",
             include_comments=False,
