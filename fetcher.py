@@ -1,3 +1,4 @@
+import html
 import logging
 import random
 import time
@@ -7,6 +8,30 @@ import feedparser
 import trafilatura
 
 logger = logging.getLogger(__name__)
+
+
+def _iterative_unescape(text: str, max_iterations: int = 5) -> str:
+    """迭代解码 HTML 实体，直到内容稳定（处理双重编码）
+
+    Args:
+        text: 要解码的文本
+        max_iterations: 最大迭代次数，防止无限循环
+
+    Returns:
+        解码后的文本
+    """
+    if not text:
+        return text
+
+    result = text
+    for _ in range(max_iterations):
+        unescaped = html.unescape(result)
+        if unescaped == result:
+            # 内容稳定，不再变化
+            break
+        result = unescaped
+
+    return result
 
 
 def fetch_full_text(url: str, timeout: int = 30) -> Optional[str]:
@@ -47,16 +72,11 @@ def fetch_full_text(url: str, timeout: int = 30) -> Optional[str]:
                         logger.error(f"  达到最大重试次数，跳过")
                         return None
 
-                # 处理403错误 - 访问被拒绝
+                # 处理403错误 - 访问被拒绝（不重试，直接使用RSS摘要）
                 if response.status_code == 403:
-                    logger.warning(f"  遇到403错误，访问被拒绝")
-                    if attempt < max_retries - 1:
-                        logger.info(f"  尝试重试...")
-                        continue
-                    else:
-                        logger.warning(f"  403错误持续存在，将使用RSS摘要作为回退")
-                        # 返回None，表示403错误，应该使用RSS summary作为回退
-                        return None
+                    logger.debug(f"  遇到403错误，访问被拒绝，将使用RSS摘要")
+                    # 返回None，表示403错误，应该使用RSS summary作为回退
+                    return None
 
                 response.raise_for_status()
                 downloaded = response.text
@@ -74,17 +94,13 @@ def fetch_full_text(url: str, timeout: int = 30) -> Optional[str]:
             return content
 
         except httpx.HTTPStatusError as e:
-            # 处理403错误
+            # 处理403错误（不重试，直接使用RSS摘要）
             if e.response.status_code == 403:
-                if attempt < max_retries - 1:
-                    logger.info(f"  403错误，尝试重试...")
-                    continue
-                else:
-                    logger.warning(f"  403错误持续，将使用RSS摘要作为回退")
-                    # 返回None，表示403错误，应该使用RSS summary作为回退
-                    return None
+                logger.debug(f"  遇到403错误，将使用RSS摘要")
+                # 返回None，表示403错误，应该使用RSS summary作为回退
+                return None
 
-            # 处理429速率限制
+            # 处理429速率限制（继续重试）
             if e.response.status_code == 429 and attempt < max_retries - 1:
                 continue
 
@@ -142,11 +158,14 @@ def extract_article_content(entry: Dict[str, Any], feed_url: str) -> tuple[str, 
     # 1. 优先使用RSS中的content
     if hasattr(entry, 'content') and entry.content:
         content = entry.content[0].value
-        return content, 'rss_content'
+        # 使用迭代解码 HTML 实体（处理双重编码）
+        decoded_content = _iterative_unescape(content)
+        return decoded_content, 'rss_content'
 
     # 2. 其次使用summary，并尝试抓取全文
     if hasattr(entry, 'summary') and entry.summary:
-        summary = entry.summary
+        # 使用迭代解码 HTML 实体（处理双重编码）
+        summary = _iterative_unescape(entry.summary)
 
         # 尝试抓取全文作为补充
         if url:

@@ -1,6 +1,35 @@
 sources:
-  - name: "Example Blog"
-    url: "https://example.com/rss"
+  - name: "Anthropic Engineering"
+    url: "https://raw.githubusercontent.com/conoro/anthropic-engineering-rss-feed/main/anthropic_engineering_rss.xml"
 
-  - name: "Tech News"
-    url: "https://news.example.com/feed"
+  - name: "Ben's Bites"
+    url: "https://www.bensbites.com/feed"
+
+  # 注意：此源返回 403 错误，将使用 RSS 摘要
+  - name: "Gary Marcus"
+    url: "https://garymarcus.substack.com/feed"
+
+  - name: "Hacker News Frontpage"
+    url: "https://hnrss.org/frontpage"
+
+  - name: "MIT Technology Review"
+    url: "https://www.technologyreview.com/feed"
+
+  # 注意：此源返回 403 错误，将使用 RSS 摘要
+  - name: "OpenAI Developer Blog"
+    url: "https://developers.openai.com/rss.xml"
+
+  - name: "The Dankoe Letters"
+    url: "https://thedankoe.com/letters/feed/"
+
+  - name: "Sebastian Raschka"
+    url: "https://magazine.sebastianraschka.com/feed"
+
+  - name: "Simon Willison"
+    url: "https://simonwillison.net/atom/everything/"
+
+  - name: "机器之心 Synced"
+    url: "https://www.jiqizhixin.com/rss"
+
+  - name: "Andrej Karpathy"
+    url: "https://karpathy.bearblog.dev/feed/"
