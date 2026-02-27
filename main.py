@@ -1,24 +1,21 @@
 import logging
 import sys
-from datetime import datetime
 
 from config import load_sources
 from storage import init_db, article_exists, save_article, get_stats
 from fetcher import fetch_entries
+from log_utils import setup_daily_file_logging
 
-# 配置日志
-logging.basicConfig(
-    level=logging.INFO,
-    format='[%(asctime)s] [%(levelname)s] %(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S'
-)
 logger = logging.getLogger(__name__)
 
 
 def main():
     """主函数：抓取所有RSS源并保存到数据库"""
+    log_file = setup_daily_file_logging(__file__, "download")
+
     logger.info("=" * 50)
     logger.info("RSS Hub 开始运行")
+    logger.info(f"下载日志: {log_file}")
 
     # 加载配置
     try:

@@ -16,30 +16,37 @@ API 层仍然有去重保护，确保幂等性。
 import argparse
 import logging
 import os
+import re
 import sqlite3
 import sys
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, Dict, Any, List, Tuple
+from urllib.parse import parse_qsl, urlsplit, urlunsplit, urlencode
 
 import httpx
 from dotenv import load_dotenv
+from log_utils import setup_daily_file_logging
 
 # 加载 .env 文件
 load_dotenv()
 
-# 配置日志
-logging.basicConfig(
-    level=logging.INFO,
-    format='[%(asctime)s] [%(levelname)s] %(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S'
-)
 logger = logging.getLogger(__name__)
 
 # 默认配置
 DEFAULT_API_URL = "https://memos.aizhi.app"
 DEFAULT_BATCH_SIZE = 20
 UPLOAD_TRACKER_DB = Path(__file__).parent / ".upload_tracker.db"
+RSS_LIFECYCLE_INBOX = "inbox"
+RSS_LIFECYCLE_READING = "reading"
+RSS_LIFECYCLE_ARCHIVED = "archived"
+RSS_LIFECYCLE_DELETED = "deleted"
+RSS_LIFECYCLE_STATES = {
+    RSS_LIFECYCLE_INBOX,
+    RSS_LIFECYCLE_READING,
+    RSS_LIFECYCLE_ARCHIVED,
+    RSS_LIFECYCLE_DELETED,
+}
 
 
 def get_rss_db_path(db_path: Path = None) -> Path:
@@ -61,11 +68,147 @@ def get_api_url() -> str:
 
 def get_ingest_token() -> str:
     """从环境变量获取 RSS Ingest Token"""
-    token = os.environ.get("RSS_INGEST_TOKEN")
+    token = (os.environ.get("RSS_INGEST_TOKEN") or "").strip()
     if not token:
         logger.error("未设置 RSS_INGEST_TOKEN 环境变量")
         sys.exit(1)
     return token
+
+
+def get_optional_ingest_token() -> Optional[str]:
+    """获取可选的 RSS Ingest Token（未配置时返回 None）"""
+    token = (os.environ.get("RSS_INGEST_TOKEN") or "").strip()
+    return token or None
+
+
+def normalize_optional_external_id(value: Any) -> Optional[str]:
+    """规范化 external_id（与 Worker 逻辑对齐）"""
+    if value is None:
+        return None
+    normalized = str(value).strip()
+    if not normalized:
+        return None
+    return normalized[:512]
+
+
+def normalize_rss_lifecycle_state(value: Any) -> str:
+    """规范化 RSS 生命周期状态"""
+    normalized = str(value or "").strip().lower()
+    if normalized in RSS_LIFECYCLE_STATES:
+        return normalized
+    return RSS_LIFECYCLE_INBOX
+
+
+def extract_lifecycle_state_from_reason(reason: str) -> Optional[str]:
+    """从 Worker 返回的 reason 字段提取 lifecycle 状态"""
+    if not reason:
+        return None
+    match = re.search(r"lifecycle:([a-z_]+)", reason.strip().lower())
+    if not match:
+        return None
+    lifecycle_state = normalize_rss_lifecycle_state(match.group(1))
+    if lifecycle_state == RSS_LIFECYCLE_INBOX:
+        return None
+    return lifecycle_state
+
+
+def normalize_canonical_url(value: Any) -> str:
+    """规范化 URL（尽量对齐 Worker 的 canonical 逻辑）"""
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+
+    tracking_keys = {"fbclid", "gclid", "igshid", "mc_cid", "mc_eid", "ref", "spm"}
+
+    def _normalize_with_url(input_url: str) -> str:
+        parsed = urlsplit(input_url)
+        if not parsed.scheme:
+            raise ValueError("missing scheme")
+
+        hostname = (parsed.hostname or "").lower()
+        if not hostname:
+            raise ValueError("missing hostname")
+
+        port = parsed.port
+        scheme = parsed.scheme.lower()
+        if (scheme == "https" and port == 443) or (scheme == "http" and port == 80):
+            port = None
+
+        netloc = hostname
+        if port is not None:
+            netloc = f"{netloc}:{port}"
+
+        path = parsed.path or "/"
+        if len(path) > 1:
+            path = re.sub(r"/+$", "", path)
+
+        params = []
+        for key, param_value in parse_qsl(parsed.query, keep_blank_values=True):
+            lowered = key.lower()
+            if lowered.startswith("utm_"):
+                continue
+            if lowered in tracking_keys:
+                continue
+            params.append((key, param_value))
+        params.sort(key=lambda kv: kv[0])
+        query = urlencode(params, doseq=True)
+
+        return urlunsplit((scheme, netloc, path, query, ""))
+
+    try:
+        return _normalize_with_url(raw)
+    except Exception:
+        try:
+            return _normalize_with_url(f"https://{raw}")
+        except Exception:
+            return raw
+
+
+def resolve_item_identity(item: Dict[str, Any]) -> Tuple[Optional[str], str]:
+    """解析上传项的身份键：优先 external_id，再 canonical_url"""
+    external_id = normalize_optional_external_id(
+        item.get("external_id") or item.get("guid") or item.get("id")
+    )
+    canonical_url = normalize_canonical_url(
+        item.get("canonical_url") or item.get("url") or item.get("link")
+    )
+    return external_id, canonical_url
+
+
+def _ensure_tracker_columns(conn: sqlite3.Connection):
+    """为旧版 tracker 表补齐新增字段"""
+    existing_columns = {
+        row["name"]
+        for row in conn.execute("PRAGMA table_info(uploaded_memos)").fetchall()
+    }
+    required_columns = [
+        ("external_id", "TEXT"),
+        ("canonical_url", "TEXT"),
+        ("published_at", "TEXT"),
+        ("last_status", "TEXT"),
+        ("last_reason", "TEXT"),
+        ("lifecycle_state", "TEXT DEFAULT 'inbox' NOT NULL"),
+        ("suppressed", "INTEGER DEFAULT 0 NOT NULL"),
+        ("retry_count", "INTEGER DEFAULT 0 NOT NULL"),
+        ("last_seen_at", "TIMESTAMP"),
+        ("last_synced_at", "TIMESTAMP"),
+    ]
+
+    for column_name, column_def in required_columns:
+        if column_name not in existing_columns:
+            conn.execute(f"ALTER TABLE uploaded_memos ADD COLUMN {column_name} {column_def}")
+
+    conn.execute(
+        "UPDATE uploaded_memos SET lifecycle_state = ? "
+        "WHERE lifecycle_state IS NULL OR TRIM(lifecycle_state) = ''",
+        (RSS_LIFECYCLE_INBOX,)
+    )
+    conn.execute(
+        "UPDATE uploaded_memos SET suppressed = 0 WHERE suppressed IS NULL"
+    )
+    conn.execute(
+        "UPDATE uploaded_memos SET retry_count = 0 WHERE retry_count IS NULL"
+    )
 
 
 def init_tracker_db() -> sqlite3.Connection:
@@ -79,18 +222,40 @@ def init_tracker_db() -> sqlite3.Connection:
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             source TEXT NOT NULL,
             url TEXT NOT NULL,
+            external_id TEXT,
+            canonical_url TEXT,
+            published_at TEXT,
             title TEXT,
             content_hash TEXT,
             memo_id INTEGER,
+            last_status TEXT,
+            last_reason TEXT,
+            lifecycle_state TEXT DEFAULT 'inbox' NOT NULL,
+            suppressed INTEGER DEFAULT 0 NOT NULL,
+            retry_count INTEGER DEFAULT 0 NOT NULL,
+            last_seen_at TIMESTAMP,
+            last_synced_at TIMESTAMP,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             UNIQUE(source, url)
         )
     """)
 
+    _ensure_tracker_columns(conn)
+
     # 创建索引
     conn.execute("CREATE INDEX IF NOT EXISTS idx_tracker_source ON uploaded_memos(source)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_tracker_uploaded ON uploaded_memos(updated_at)")
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_tracker_source_external ON uploaded_memos(source, external_id)"
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_tracker_canonical ON uploaded_memos(canonical_url)")
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_tracker_source_title_pub "
+        "ON uploaded_memos(source, title, published_at)"
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_tracker_lifecycle ON uploaded_memos(lifecycle_state)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_tracker_suppressed ON uploaded_memos(suppressed)")
 
     conn.commit()
     return conn
@@ -110,8 +275,24 @@ def init_rss_db(db_path: Path = None) -> sqlite3.Connection:
     return conn
 
 
+def compute_legacy_item_hash(item: Dict[str, Any]) -> str:
+    """兼容旧版哈希（包含身份字段）"""
+    import hashlib
+    import json
+
+    hash_data = {
+        "title": item.get("title", ""),
+        "summary": item.get("summary", ""),
+        "published_at": item.get("published_at", ""),
+        "external_id": normalize_optional_external_id(item.get("external_id") or item.get("guid") or ""),
+        "canonical_url": normalize_canonical_url(item.get("canonical_url") or item.get("url") or ""),
+    }
+    hash_str = json.dumps(hash_data, sort_keys=True, ensure_ascii=False)
+    return hashlib.sha256(hash_str.encode("utf-8")).hexdigest()[:16]
+
+
 def compute_item_hash(item: Dict[str, Any]) -> str:
-    """计算文章项的哈希，包含所有可能变化的字段
+    """计算文章内容哈希（不包含 URL 身份键，避免同文不同链重复上传）
 
     Args:
         item: memos API 格式的文章项
@@ -122,12 +303,11 @@ def compute_item_hash(item: Dict[str, Any]) -> str:
     import hashlib
     import json
 
-    # 使用所有可能变化的字段计算哈希
+    # 仅使用“内容语义”字段
     hash_data = {
         "title": item.get("title", ""),
         "summary": item.get("summary", ""),
         "published_at": item.get("published_at", ""),
-        "url": item.get("url", ""),
     }
 
     # 使用 JSON 确保顺序一致
@@ -135,33 +315,366 @@ def compute_item_hash(item: Dict[str, Any]) -> str:
     return hashlib.sha256(hash_str.encode('utf-8')).hexdigest()[:16]
 
 
-def is_article_uploaded(
+def find_tracker_record(
     tracker_conn: sqlite3.Connection,
     source: str,
     url: str,
     memos_item: Dict[str, Any]
-) -> Tuple[bool, Optional[str]]:
-    """检查文章是否已上传
+) -> Optional[sqlite3.Row]:
+    """按身份键查找 tracker 记录：source+external_id -> canonical_url -> source+url"""
+    external_id, canonical_url = resolve_item_identity(memos_item)
+    title = str(memos_item.get("title") or "").strip()
+    published_at = str(memos_item.get("published_at") or "").strip()
 
-    Returns:
-        (is_uploaded, status)
-        status: 'new', 'unchanged', 'updated'
-    """
+    if external_id:
+        cursor = tracker_conn.execute(
+            "SELECT * FROM uploaded_memos WHERE source = ? AND external_id = ? LIMIT 1",
+            (source, external_id)
+        )
+        record = cursor.fetchone()
+        if record:
+            return record
+
+    if canonical_url:
+        cursor = tracker_conn.execute(
+            "SELECT * FROM uploaded_memos WHERE canonical_url = ? LIMIT 1",
+            (canonical_url,)
+        )
+        record = cursor.fetchone()
+        if record:
+            return record
+
     cursor = tracker_conn.execute(
-        "SELECT * FROM uploaded_memos WHERE source = ? AND url = ?",
+        "SELECT * FROM uploaded_memos WHERE source = ? AND url = ? LIMIT 1",
         (source, url)
     )
     record = cursor.fetchone()
+    if record:
+        return record
 
+    # 最后的保底：同源 + 同标题 + 同发布时间，兜住 URL 漂移导致的同文重复上传
+    if title and published_at:
+        cursor = tracker_conn.execute(
+            "SELECT * FROM uploaded_memos WHERE source = ? AND title = ? AND published_at = ? "
+            "ORDER BY updated_at DESC LIMIT 1",
+            (source, title, published_at)
+        )
+        return cursor.fetchone()
+
+    return None
+
+
+def should_upload_article(
+    tracker_conn: sqlite3.Connection,
+    source: str,
+    url: str,
+    memos_item: Dict[str, Any]
+) -> Tuple[bool, str, Optional[sqlite3.Row]]:
+    """本地判定是否需要上传"""
+    record = find_tracker_record(tracker_conn, source, url, memos_item)
     if not record:
-        return False, 'new'
+        return True, "new", None
 
-    # 检查是否变化（使用所有可能变化的字段）
+    lifecycle_state = normalize_rss_lifecycle_state(record["lifecycle_state"])
+    suppressed = int(record["suppressed"] or 0) == 1
+    if suppressed and lifecycle_state != RSS_LIFECYCLE_INBOX:
+        return False, f"suppressed:{lifecycle_state}", record
+
+    # inbox 下比较内容哈希
     current_hash = compute_item_hash(memos_item)
-    if record['content_hash'] == current_hash:
-        return True, 'unchanged'
+    legacy_hash = compute_legacy_item_hash(memos_item)
+    record_hash = str(record["content_hash"] or "")
+    if lifecycle_state == RSS_LIFECYCLE_INBOX and record_hash in {current_hash, legacy_hash}:
+        return False, "unchanged", record
+
+    return True, "updated", record
+
+
+def upsert_tracker_record(
+    tracker_conn: sqlite3.Connection,
+    source: str,
+    url: str,
+    title: str,
+    memos_item: Dict[str, Any],
+    status: Optional[str] = None,
+    reason: Optional[str] = None,
+    lifecycle_state: Optional[str] = None,
+    suppressed: Optional[int] = None,
+    memo_id: Optional[int] = None,
+    increment_retry: bool = False,
+):
+    """写入/更新 tracker 状态记录"""
+    now = datetime.now().isoformat()
+    content_hash = compute_item_hash(memos_item)
+    external_id, canonical_url = resolve_item_identity(memos_item)
+    published_at = memos_item.get("published_at")
+    existing = find_tracker_record(tracker_conn, source, url, memos_item)
+
+    if existing:
+        merged_source = existing["source"] or source
+        merged_external_id = existing["external_id"] or external_id
+        next_lifecycle = normalize_rss_lifecycle_state(
+            lifecycle_state if lifecycle_state is not None else existing["lifecycle_state"]
+        )
+        next_suppressed = int(
+            suppressed if suppressed is not None else (existing["suppressed"] or 0)
+        )
+        next_retry_count = int(existing["retry_count"] or 0)
+        if increment_retry:
+            next_retry_count += 1
+        elif status is not None:
+            next_retry_count = 0
+
+        next_memo_id = memo_id if memo_id is not None else existing["memo_id"]
+        next_status = status if status is not None else existing["last_status"]
+        next_reason = reason if reason is not None else existing["last_reason"]
+        next_last_synced_at = now if status is not None else existing["last_synced_at"]
+
+        tracker_conn.execute("""
+            UPDATE uploaded_memos
+            SET source = ?, url = ?, external_id = ?, canonical_url = ?, published_at = ?, title = ?,
+                content_hash = ?, memo_id = ?, last_status = ?, last_reason = ?,
+                lifecycle_state = ?, suppressed = ?, retry_count = ?,
+                last_seen_at = ?, last_synced_at = ?, updated_at = ?
+            WHERE id = ?
+        """, (
+            merged_source,
+            url,
+            merged_external_id,
+            canonical_url,
+            published_at,
+            title,
+            content_hash,
+            next_memo_id,
+            next_status,
+            next_reason,
+            next_lifecycle,
+            next_suppressed,
+            next_retry_count,
+            now,
+            next_last_synced_at,
+            now,
+            existing["id"],
+        ))
     else:
-        return False, 'updated'
+        next_lifecycle = normalize_rss_lifecycle_state(lifecycle_state)
+        next_suppressed = int(suppressed or 0)
+        next_retry_count = 1 if increment_retry else 0
+        tracker_conn.execute("""
+            INSERT INTO uploaded_memos (
+                source, url, external_id, canonical_url, published_at, title, content_hash, memo_id,
+                last_status, last_reason, lifecycle_state, suppressed, retry_count,
+                last_seen_at, last_synced_at, updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            source,
+            url,
+            external_id,
+            canonical_url,
+            published_at,
+            title,
+            content_hash,
+            memo_id,
+            status,
+            reason,
+            next_lifecycle,
+            next_suppressed,
+            next_retry_count,
+            now,
+            now if status is not None else None,
+            now,
+        ))
+
+    tracker_conn.commit()
+
+
+def update_tracker_lifecycle_from_remote(
+    tracker_conn: sqlite3.Connection,
+    record_id: int,
+    lifecycle_state: str,
+    suppressed: int,
+    memo_id: Optional[int] = None,
+    reason: Optional[str] = None,
+):
+    """仅更新 lifecycle 同步结果，不改 content_hash"""
+    now = datetime.now().isoformat()
+    tracker_conn.execute("""
+        UPDATE uploaded_memos
+        SET lifecycle_state = ?, suppressed = ?, memo_id = COALESCE(?, memo_id),
+            last_status = ?, last_reason = ?, retry_count = 0,
+            last_synced_at = ?, updated_at = ?
+        WHERE id = ?
+    """, (
+        normalize_rss_lifecycle_state(lifecycle_state),
+        int(suppressed),
+        memo_id,
+        "synced",
+        reason,
+        now,
+        now,
+        record_id,
+    ))
+
+
+def get_suppressed_archived_records_by_source(
+    tracker_conn: sqlite3.Connection,
+    sources: List[str]
+) -> Dict[str, List[sqlite3.Row]]:
+    """获取当前范围内被 lifecycle 抑制的 archived 记录"""
+    source_list = sorted({str(s).strip() for s in sources if str(s).strip()})
+    if not source_list:
+        return {}
+
+    placeholders = ",".join(["?"] * len(source_list))
+    query = f"""
+        SELECT *
+        FROM uploaded_memos
+        WHERE suppressed = 1
+          AND lifecycle_state = ?
+          AND source IN ({placeholders})
+    """
+    params: List[Any] = [RSS_LIFECYCLE_ARCHIVED, *source_list]
+    rows = tracker_conn.execute(query, params).fetchall()
+
+    grouped: Dict[str, List[sqlite3.Row]] = {}
+    for row in rows:
+        grouped.setdefault(row["source"], []).append(row)
+    return grouped
+
+
+def sync_remote_lifecycle_hints(
+    tracker_conn: sqlite3.Connection,
+    api_url: str,
+    token: str,
+    sources: List[str],
+    page_limit: int = 100,
+    max_pages_per_source: int = 20,
+) -> Dict[str, int]:
+    """轻量远端同步：仅回填 suppressed 记录的 lifecycle 状态"""
+    stats = {
+        "source_candidates": 0,
+        "suppressed_candidates": 0,
+        "sources_synced": 0,
+        "pages_fetched": 0,
+        "reactivated": 0,
+        "confirmed_archived": 0,
+        "errors": 0,
+    }
+
+    suppressed_by_source = get_suppressed_archived_records_by_source(tracker_conn, sources)
+    stats["source_candidates"] = len(suppressed_by_source)
+    stats["suppressed_candidates"] = sum(len(rows) for rows in suppressed_by_source.values())
+    if not suppressed_by_source:
+        return stats
+
+    endpoint = f"{api_url}/api/rss/items"
+    headers = {"Authorization": f"Bearer {token}"}
+
+    with httpx.Client(timeout=20.0) as client:
+        for source_name, rows in suppressed_by_source.items():
+            pending_ids = {int(row["id"]) for row in rows}
+            by_external: Dict[str, sqlite3.Row] = {}
+            by_canonical: Dict[str, sqlite3.Row] = {}
+            for row in rows:
+                external_id = normalize_optional_external_id(row["external_id"])
+                canonical_url = normalize_canonical_url(row["canonical_url"] or row["url"])
+                if external_id:
+                    by_external[external_id] = row
+                if canonical_url:
+                    by_canonical[canonical_url] = row
+
+            if not pending_ids:
+                continue
+
+            stats["sources_synced"] += 1
+            page = 1
+            while page <= max_pages_per_source and pending_ids:
+                try:
+                    response = client.get(
+                        endpoint,
+                        headers=headers,
+                        params={
+                            "source": source_name,
+                            "state": "all",
+                            "archived": "all",
+                            "page": page,
+                            "limit": page_limit,
+                        },
+                    )
+                except Exception as e:
+                    logger.warning(f"远端生命周期同步失败（source={source_name}, page={page}）: {e}")
+                    stats["errors"] += 1
+                    break
+
+                if response.status_code != 200:
+                    logger.warning(
+                        f"远端生命周期同步失败（source={source_name}, page={page}）: "
+                        f"HTTP {response.status_code}"
+                    )
+                    stats["errors"] += 1
+                    break
+
+                try:
+                    payload = response.json()
+                except Exception:
+                    logger.warning(
+                        f"远端生命周期同步失败（source={source_name}, page={page}）: 无法解析 JSON"
+                    )
+                    stats["errors"] += 1
+                    break
+
+                stats["pages_fetched"] += 1
+                items = payload.get("items", [])
+                for remote_item in items:
+                    remote_external_id = normalize_optional_external_id(remote_item.get("external_id"))
+                    remote_canonical_url = normalize_canonical_url(remote_item.get("canonical_url"))
+
+                    matched = None
+                    if remote_external_id and remote_external_id in by_external:
+                        matched = by_external[remote_external_id]
+                    elif remote_canonical_url and remote_canonical_url in by_canonical:
+                        matched = by_canonical[remote_canonical_url]
+
+                    if not matched:
+                        continue
+
+                    record_id = int(matched["id"])
+                    lifecycle_state = normalize_rss_lifecycle_state(remote_item.get("lifecycle_state"))
+                    note_id = remote_item.get("note_id")
+
+                    if lifecycle_state == RSS_LIFECYCLE_INBOX:
+                        update_tracker_lifecycle_from_remote(
+                            tracker_conn=tracker_conn,
+                            record_id=record_id,
+                            lifecycle_state=RSS_LIFECYCLE_INBOX,
+                            suppressed=0,
+                            memo_id=note_id,
+                            reason="remote_sync:lifecycle:inbox",
+                        )
+                        stats["reactivated"] += 1
+                    else:
+                        update_tracker_lifecycle_from_remote(
+                            tracker_conn=tracker_conn,
+                            record_id=record_id,
+                            lifecycle_state=lifecycle_state,
+                            suppressed=1,
+                            memo_id=note_id,
+                            reason=f"remote_sync:lifecycle:{lifecycle_state}",
+                        )
+                        if lifecycle_state == RSS_LIFECYCLE_ARCHIVED:
+                            stats["confirmed_archived"] += 1
+
+                    pending_ids.discard(record_id)
+
+                has_more = bool(payload.get("hasMore"))
+                if not has_more:
+                    break
+                page += 1
+
+            tracker_conn.commit()
+
+    return stats
 
 
 def get_articles(
@@ -207,6 +720,8 @@ def article_to_memos_format(article: sqlite3.Row) -> Dict[str, Any]:
     """
     # 生成 guid: 使用 URL 作为唯一标识
     guid = article["url"]
+    canonical_url = normalize_canonical_url(article["url"])
+    external_id = normalize_optional_external_id(guid)
 
     # 直接传递原始 published_at，让 Worker 处理解析
     # 如果数据库中没有值，则为 None
@@ -218,32 +733,13 @@ def article_to_memos_format(article: sqlite3.Row) -> Dict[str, Any]:
     return {
         "source": article["source"],
         "guid": guid,
+        "external_id": external_id,
+        "canonical_url": canonical_url,
         "url": article["url"],
         "title": article["title"],
         "published_at": published_at,
         "summary": content
     }
-
-
-def record_upload(
-    tracker_conn: sqlite3.Connection,
-    source: str,
-    url: str,
-    title: str,
-    memos_item: Dict[str, Any],
-    memo_id: Optional[int] = None
-):
-    """记录上传成功"""
-    # 使用所有可能变化的字段计算哈希
-    content_hash = compute_item_hash(memos_item)
-    now = datetime.now().isoformat()
-
-    tracker_conn.execute("""
-        INSERT OR REPLACE INTO uploaded_memos
-        (source, url, title, content_hash, memo_id, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?)
-    """, (source, url, title, content_hash, memo_id, now))
-    tracker_conn.commit()
 
 
 def upload_to_memos(
@@ -316,27 +812,75 @@ def upload_to_memos(
 
                 logger.info(f"  ✓ 批次完成: 新增 {created} | 更新 {updated} | 跳过 {skipped} | 失败 {failed}")
 
-                # 只记录成功的上传，lifecycle skipped 不写入 tracker
-                # 这样文章回到 inbox 后能被重新检测到并更新
-                results = result.get("results", [])
-                for item_data, res in zip(batch, results):
-                    status = res.get("status")
-                    reason = str(res.get("reason") or "").lower()
+                # 回写 tracker 状态：created/updated/recreated/skipped/error 都记录
+                raw_results = result.get("results", [])
+                result_by_index = {}
+                for res in raw_results:
+                    index = res.get("index")
+                    if isinstance(index, int):
+                        result_by_index[index] = res
 
-                    if status in ["created", "updated"]:
-                        # 成功创建或更新，记录到 tracker
-                        record_upload(
-                            tracker_conn,
+                for batch_index, item_data in enumerate(batch):
+                    res = result_by_index.get(batch_index)
+                    if not res:
+                        continue
+
+                    status = str(res.get("status") or "").lower()
+                    reason = str(res.get("reason") or "")
+                    lifecycle_state = extract_lifecycle_state_from_reason(reason)
+                    note_id = res.get("note_id")
+
+                    if status in ["created", "updated", "recreated"]:
+                        upsert_tracker_record(
+                            tracker_conn=tracker_conn,
                             source=item_data["source"],
                             url=item_data["url"],
                             title=item_data.get("title", ""),
                             memos_item=item_data,
-                            memo_id=res.get("note_id")
+                            status=status,
+                            reason=reason,
+                            lifecycle_state=RSS_LIFECYCLE_INBOX,
+                            suppressed=0,
+                            memo_id=note_id,
                         )
-                    elif status == "skipped" and "lifecycle" in reason:
-                        # lifecycle 导致的 skipped，不记录到 tracker
-                        # 这样文章回到 inbox 后可以再次尝试更新
-                        logger.debug(f"  lifecycle skipped (未记录): {item_data.get('title', 'N/A')[:50]}")
+                    elif status == "skipped":
+                        if lifecycle_state:
+                            upsert_tracker_record(
+                                tracker_conn=tracker_conn,
+                                source=item_data["source"],
+                                url=item_data["url"],
+                                title=item_data.get("title", ""),
+                                memos_item=item_data,
+                                status=status,
+                                reason=reason,
+                                lifecycle_state=lifecycle_state,
+                                suppressed=1,
+                                memo_id=note_id,
+                            )
+                        else:
+                            upsert_tracker_record(
+                                tracker_conn=tracker_conn,
+                                source=item_data["source"],
+                                url=item_data["url"],
+                                title=item_data.get("title", ""),
+                                memos_item=item_data,
+                                status=status,
+                                reason=reason,
+                                lifecycle_state=RSS_LIFECYCLE_INBOX,
+                                suppressed=0,
+                                memo_id=note_id,
+                            )
+                    elif status == "error":
+                        upsert_tracker_record(
+                            tracker_conn=tracker_conn,
+                            source=item_data["source"],
+                            url=item_data["url"],
+                            title=item_data.get("title", ""),
+                            memos_item=item_data,
+                            status=status,
+                            reason=reason,
+                            increment_retry=True,
+                        )
 
             else:
                 logger.error(f"  ✗ 上传失败: HTTP {response.status_code}")
@@ -354,6 +898,8 @@ def upload_to_memos(
 
 
 def main():
+    log_file = setup_daily_file_logging(__file__, "upload")
+
     parser = argparse.ArgumentParser(
         description="将本地 RSS 文章上传到 memos-worker（混合去重方案）",
         formatter_class=argparse.RawDescriptionHelpFormatter
@@ -388,6 +934,11 @@ def main():
         action="store_true",
         help="重置上传记录（强制重新上传所有文章）"
     )
+    parser.add_argument(
+        "--skip-remote-sync",
+        action="store_true",
+        help="跳过上传前的远端 lifecycle 轻量同步"
+    )
 
     args = parser.parse_args()
 
@@ -395,6 +946,7 @@ def main():
     logger.info("=" * 50)
     logger.info("RSS → Memos 上传工具 v2 (混合去重)")
     logger.info("=" * 50)
+    logger.info(f"上传日志: {log_file}")
     logger.info(f"API 地址: {get_api_url()}")
     logger.info(f"RSS 数据库: {get_rss_db_path(args.db)}")
     logger.info(f"上传记录: {get_tracker_db_path()}")
@@ -405,6 +957,7 @@ def main():
         logger.info(f"数量限制: {args.limit}")
     if args.dry_run:
         logger.info("⚠️  DRY-RUN 模式 - 不会实际上传")
+    logger.info(f"远端同步: {'关闭' if args.skip_remote_sync else '开启'}")
     logger.info("")
 
     # 重置上传记录
@@ -431,28 +984,73 @@ def main():
         tracker_conn.close()
         return
 
+    # 上传前轻量远端同步（只同步被 lifecycle 抑制的记录）
+    if not args.skip_remote_sync:
+        logger.info("执行远端生命周期轻量同步...")
+        optional_token = get_optional_ingest_token()
+        if optional_token:
+            source_scope = sorted({str(article["source"]) for article in all_articles})
+            sync_stats = sync_remote_lifecycle_hints(
+                tracker_conn=tracker_conn,
+                api_url=get_api_url(),
+                token=optional_token,
+                sources=source_scope,
+            )
+            logger.info(
+                "  同步结果: source候选 %s | 抑制候选 %s | 扫描源 %s | 拉取页数 %s | "
+                "恢复inbox %s | 仍归档 %s | 错误 %s",
+                sync_stats["source_candidates"],
+                sync_stats["suppressed_candidates"],
+                sync_stats["sources_synced"],
+                sync_stats["pages_fetched"],
+                sync_stats["reactivated"],
+                sync_stats["confirmed_archived"],
+                sync_stats["errors"],
+            )
+        else:
+            logger.info("  未配置 RSS_INGEST_TOKEN，跳过远端同步")
+
     # 本地去重过滤
     logger.info("检查本地上传记录...")
     items_to_upload = []
     stats = {
         "new": 0,
         "unchanged": 0,
-        "updated": 0
+        "updated": 0,
+        "suppressed": 0,
     }
 
     for article in all_articles:
         # 先转换为 memos 格式
         item = article_to_memos_format(article)
 
-        is_uploaded, status = is_article_uploaded(
+        should_upload, status, _record = should_upload_article(
             tracker_conn,
             article["source"],
             article["url"],
             item
         )
 
-        if status == "unchanged":
+        if not should_upload and status == "unchanged":
             stats["unchanged"] += 1
+            if _record:
+                upsert_tracker_record(
+                    tracker_conn=tracker_conn,
+                    source=article["source"],
+                    url=article["url"],
+                    title=item.get("title", ""),
+                    memos_item=item,
+                )
+        elif not should_upload and status.startswith("suppressed:"):
+            stats["suppressed"] += 1
+            if _record:
+                upsert_tracker_record(
+                    tracker_conn=tracker_conn,
+                    source=article["source"],
+                    url=article["url"],
+                    title=item.get("title", ""),
+                    memos_item=item,
+                )
         else:
             if status == "new":
                 stats["new"] += 1
@@ -464,6 +1062,7 @@ def main():
     logger.info(f"  新文章: {stats['new']}")
     logger.info(f"  已更新: {stats['updated']}")
     logger.info(f"  未变化（已过滤）: {stats['unchanged']}")
+    logger.info(f"  生命周期抑制（已过滤）: {stats['suppressed']}")
     logger.info(f"  需要上传: {len(items_to_upload)} 篇")
 
     if not items_to_upload:
@@ -490,8 +1089,8 @@ def main():
     logger.info("=" * 50)
     logger.info("上传完成")
     logger.info("=" * 50)
-    logger.info(f"数据库总数: {stats['new'] + stats['updated'] + stats['unchanged']}")
-    logger.info(f"本地过滤: {stats['unchanged']} 篇")
+    logger.info(f"数据库总数: {stats['new'] + stats['updated'] + stats['unchanged'] + stats['suppressed']}")
+    logger.info(f"本地过滤: {stats['unchanged'] + stats['suppressed']} 篇")
     logger.info(f"需要上传: {len(items_to_upload)} 篇")
     logger.info(f"上传成功: {upload_stats['success']}")
     logger.info(f"API 跳过: {upload_stats['skipped']}")
