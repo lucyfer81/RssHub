@@ -1,7 +1,7 @@
 import feedparser
 import httpx
 from hashlib import md5
-from typing import List, Dict
+from typing import List, Dict, Optional
 from datetime import datetime
 from app.config import get_settings
 
@@ -13,9 +13,18 @@ class RSSFetcher:
 
     async def fetch(self, url: str) -> List[Dict]:
         """抓取 RSS 源，返回文章列表"""
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
-            response = await client.get(url)
-            feed = feedparser.parse(response.content)
+        try:
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                response = await client.get(url)
+                response.raise_for_status()
+                feed = feedparser.parse(response.content)
+        except (httpx.TimeoutError, httpx.HTTPError, httpx.NetworkError) as e:
+            # 网络错误，返回空列表
+            return []
+
+        # 验证 feed
+        if not feed or not hasattr(feed, 'entries') or not feed.entries:
+            return []
 
         items = []
         for entry in feed.entries[:settings.max_items_per_feed]:
@@ -32,11 +41,11 @@ class RSSFetcher:
 
         return items
 
-    def _parse_date(self, date_str: str) -> datetime:
+    def _parse_date(self, date_str: str) -> Optional[datetime]:
         """解析日期"""
         if not date_str:
             return None
         try:
             return datetime.strptime(date_str, "%a, %d %b %Y %H:%M:%S %z")
-        except:
+        except (ValueError, TypeError):
             return None
