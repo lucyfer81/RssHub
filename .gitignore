@@ -1,0 +1,50 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+tests/
+
+# Virtual environment
+.venv/
+venv/
+ENV/
+
+# Database
+*.db
+*.db-shm
+*.db-wal
+
+# Logs
+*.log
+cron.log
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Security & Privacy
+*.env
+*.env.local
+*.key
+*.pem
+*.cert
+*.credential
+*secret*
+*password*
+*.token
+
+# Claude Code
+.claude/
+
+# Backup files
+*.bak
+*.backup
+*~
