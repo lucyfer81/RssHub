@@ -54,15 +54,22 @@ async def health_check():
 # Inbox 页面
 @app.get("/inbox")
 async def inbox(request: Request):
-    from app.database import async_session
-    async with async_session() as session:
+    from app.database import get_session
+    from fastapi.templating import Jinja2Templates
+
+    # 每次请求创建新的 templates 对象
+    templates = Jinja2Templates(directory="app/templates")
+
+    async for session in get_session():
         result = await session.execute(
             select(Item)
             .where(Item.status == "inbox")
             .order_by(Item.score_summary.desc())
         )
         items = result.scalars().all()
-    return templates.TemplateResponse("inbox.html", {"request": request, "items": items})
+        break
+    # Starlette 1.0.0+ 需要传递 request 作为第一个参数
+    return templates.TemplateResponse(request, "inbox.html", {"items": items})
 
 if __name__ == "__main__":
     import uvicorn

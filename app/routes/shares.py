@@ -12,7 +12,7 @@ router = APIRouter(prefix="/shares", tags=["shares"])
 
 @router.post("/items/{item_id}", response_model=ShareResponse)
 async def create_share(item_id: int, session: AsyncSession = Depends(get_session)):
-    share_code = secrets.urlsafe_urlsafe(8)
+    share_code = secrets.token_urlsafe(8)
     expires_at = datetime.now() + timedelta(days=30)
 
     share = Share(item_id=item_id, share_code=share_code, expires_at=expires_at)
@@ -42,5 +42,6 @@ async def share_page(code: str, request: Request):
         item_result = await session.execute(select(Item).where(Item.id == share.item_id))
         item = item_result.scalar_one()
 
-    from app.main import templates
-    return templates.TemplateResponse("share.html", {"request": request, "item": item})
+    from fastapi.templating import Jinja2Templates
+    templates = Jinja2Templates(directory="app/templates")
+    return templates.TemplateResponse(request, "share.html", {"item": item})
