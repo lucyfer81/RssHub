@@ -11,6 +11,13 @@ class Scorer:
 
     async def score(self, title: str, summary: str, user_preferences: str = "") -> float:
         """基于用户偏好对文章进行评分 (0-100)"""
+        # 输入验证
+        if not title or not title.strip():
+            raise ValueError("title 不能为空")
+
+        if not summary or not summary.strip():
+            raise ValueError("summary 不能为空")
+
         prompt = f"""请根据用户偏好对文章进行评分。
 
 用户偏好:
@@ -45,9 +52,13 @@ class Scorer:
                 response.raise_for_status()
                 result = response.json()
 
+                # 验证响应结构
+                if "choices" not in result or not result["choices"]:
+                    raise ValueError("API 响应缺少 choices 字段")
+
                 score_text = result["choices"][0]["message"]["content"].strip()
-                # 提取数字
-                match = re.search(r'\d+', score_text)
+                # 匹配 0-100 的数字（可选小数）
+                match = re.search(r'\b(100(?:\.0+)?|[1-9]?\d(?:\.\d+)?)\b', score_text)
                 if match:
                     score = float(match.group())
                     return min(max(score, 0), 100)  # 限制在 0-100
