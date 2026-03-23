@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+
+{% block title %}Inbox - RssHub{% endblock %}
+
+{% block content %}
+<h2>待筛选文章 ({{ items|length }})</h2>
+
+{% if items %}
+{% for item in items %}
+<div class="item">
+    <div class="item-title">
+        {{ item.title_zh or item.title }}
+        {% if item.score_summary %}
+        <span class="score {% if item.score_summary >= 70 %}high{% elif item.score_summary >= 40 %}medium{% else %}low{% endif %}">{{ item.score_summary|int }}</span>
+        {% endif %}
+    </div>
+    <div class="item-meta">
+        {{ item.summary_zh or item.summary[:200] }}...
+    </div>
+    <div class="actions">
+        <button class="btn btn-primary" onclick="moveToReading({{ item.id }})">阅读</button>
+        <button class="btn btn-secondary" onclick="discard({{ item.id }})">丢弃</button>
+        <a href="/items/{{ item.id }}" class="btn btn-secondary">详情</a>
+    </div>
+</div>
+{% endfor %}
+{% else %}
+<p>暂无文章</p>
+{% endif %}
+
+<script>
+async function moveToReading(id) {
+    const response = await fetch(`/items/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'reading' })
+    });
+    if (response.ok) {
+        location.reload();
+    }
+}
+
+async function discard(id) {
+    const response = await fetch(`/items/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'discarded' })
+    });
+    if (response.ok) {
+        location.reload();
+    }
+}
+</script>
+{% endblock %}
