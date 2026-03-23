@@ -1,6 +1,6 @@
 import httpx
 import asyncio
-from typing import Optional
+import time
 from app.config import get_settings
 
 settings = get_settings()
@@ -12,6 +12,7 @@ class ContentFetcher:
     def __init__(self):
         self.rate_limit = settings.jina_rate_limit_seconds
         self._last_fetch = 0
+        self._lock = asyncio.Lock()
 
     async def fetch(self, url: str) -> str:
         """使用 Jina.ai Reader API 抓取全文
@@ -36,9 +37,10 @@ class ContentFetcher:
             return response.text
 
     async def _rate_limit(self):
-        """简单的频率控制，避免过于频繁的请求"""
-        if self._last_fetch:
-            elapsed = asyncio.get_event_loop().time() - self._last_fetch
-            if elapsed < self.rate_limit:
-                await asyncio.sleep(self.rate_limit - elapsed)
-        self._last_fetch = asyncio.get_event_loop().time()
+        """简单的频率控制（线程安全）"""
+        async with self._lock:
+            if self._last_fetch:
+                elapsed = time.monotonic() - self._last_fetch
+                if elapsed < self.rate_limit:
+                    await asyncio.sleep(self.rate_limit - elapsed)
+            self._last_fetch = time.monotonic()
