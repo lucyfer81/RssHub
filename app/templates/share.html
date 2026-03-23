@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+
+{% block title %}{{ item.title_zh or item.title }} - 分享{% endblock %}
+
+{% block content %}
+<article>
+    <h1>{{ item.title_zh or item.title }}</h1>
+    <p><strong>来源:</strong> <a href="{{ item.link }}" target="_blank">{{ item.link }}</a></p>
+
+    {% if item.summary_ai %}
+    <section style="margin: 30px 0; padding: 20px; background: #f9f9f9; border-left: 4px solid #2196F3;">
+        <h2>AI 总结</h2>
+        <p>{{ item.summary_ai }}</p>
+    </section>
+    {% endif %}
+
+    <section style="margin: 30px 0;">
+        <h2>内容</h2>
+        <div style="line-height: 1.8;">
+            {{ item.content_zh or item.content }}
+        </div>
+    </section>
+</article>
+
+<hr style="margin: 40px 0; border: none; border-top: 1px solid #eee;">
+<p style="text-align: center; color: #999;"><small>由 <a href="/">RssHub</a> 生成并分享</small></p>
+{% endblock %}
