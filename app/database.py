@@ -1,12 +1,15 @@
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy.engine import make_url
 from app.config import get_settings
 
 settings = get_settings()
 
-# 转换同步 URL 为异步 URL
-async_db_url = settings.database_url.replace("sqlite://", "sqlite+aiosqlite://")
+# 安全地转换同步 URL 为异步 URL
+url = make_url(settings.database_url)
+url = url.set(drivername="sqlite+aiosqlite")
+async_db_url = str(url)
 
 engine = create_async_engine(
     async_db_url,

@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Text, Float, DateTime, Boolean, ForeignKey, UniqueConstraint
+from sqlalchemy import Column, Integer, String, Text, Float, DateTime, Boolean, ForeignKey, UniqueConstraint, Index
 from sqlalchemy.sql import func
 from app.database import Base
 
@@ -16,7 +16,7 @@ class Item(Base):
     __tablename__ = "items"
 
     id = Column(Integer, primary_key=True)
-    feed_id = Column(Integer, ForeignKey("feeds.id"), nullable=False)
+    feed_id = Column(Integer, ForeignKey("feeds.id", ondelete="CASCADE"), nullable=False)
 
     # 原始内容
     title = Column(String, nullable=False)
@@ -49,11 +49,17 @@ class Item(Base):
     created_at = Column(DateTime, default=func.now())
     updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
 
+    __table_args__ = (
+        Index('idx_item_feed_status', 'feed_id', 'status'),
+        Index('idx_item_published', 'published_at'),
+        Index('idx_item_status_score', 'status', 'score_summary'),
+    )
+
 class Preference(Base):
     __tablename__ = "preferences"
 
     id = Column(Integer, primary_key=True)
-    item_id = Column(Integer, ForeignKey("items.id"), nullable=False)
+    item_id = Column(Integer, ForeignKey("items.id", ondelete="CASCADE"), nullable=False)
     feedback = Column(String, nullable=False)  # approved/discarded
     keywords = Column(Text)  # JSON
     score_diff = Column(Float)
@@ -63,7 +69,7 @@ class Share(Base):
     __tablename__ = "shares"
 
     id = Column(Integer, primary_key=True)
-    item_id = Column(Integer, ForeignKey("items.id"), nullable=False)
+    item_id = Column(Integer, ForeignKey("items.id", ondelete="CASCADE"), nullable=False)
     share_code = Column(String, unique=True, nullable=False)
     expires_at = Column(DateTime)
     created_at = Column(DateTime, default=func.now())
