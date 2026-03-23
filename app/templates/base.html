@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}RssHub{% endblock %}</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; max-width: 900px; margin: 0 auto; padding: 20px; line-height: 1.6; }
+        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px; padding-bottom: 20px; border-bottom: 1px solid #eee; }
+        .header h1 { margin: 0; font-size: 24px; }
+        .nav a { margin-left: 15px; text-decoration: none; color: #333; padding: 8px 12px; border-radius: 4px; }
+        .nav a:hover { background: #f5f5f5; }
+        .nav a.active { background: #e3f2fd; color: #1976d2; }
+        .item { border-bottom: 1px solid #eee; padding: 15px 0; }
+        .item-title { font-size: 18px; margin-bottom: 5px; font-weight: 500; }
+        .item-meta { font-size: 14px; color: #666; margin-bottom: 10px; }
+        .score { background: #4CAF50; color: white; padding: 2px 8px; border-radius: 4px; font-size: 12px; margin-left: 8px; }
+        .score.high { background: #4CAF50; }
+        .score.medium { background: #FFC107; color: #333; }
+        .score.low { background: #f44336; }
+        .btn { padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer; font-size: 14px; text-decoration: none; display: inline-block; }
+        .btn-primary { background: #2196F3; color: white; }
+        .btn-primary:hover { background: #1976D2; }
+        .btn-secondary { background: #f5f5f5; color: #333; }
+        .btn-secondary:hover { background: #e0e0e0; }
+        .actions { margin-top: 10px; }
+        .actions .btn { margin-right: 8px; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>RssHub</h1>
+        <nav class="nav">
+            <a href="/">首页</a>
+            <a href="/inbox">Inbox</a>
+            <a href="/reading">Reading</a>
+            <a href="/feeds">Feeds</a>
+        </nav>
+    </div>
+    {% block content %}{% endblock %}
+</body>
+</html>
