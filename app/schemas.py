@@ -1,6 +1,6 @@
-from pydantic import BaseModel, HttpUrl
+from pydantic import BaseModel
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Literal
 
 class FeedBase(BaseModel):
     name: str
@@ -41,7 +41,7 @@ class ItemResponse(ItemBase):
         from_attributes = True
 
 class ItemUpdate(BaseModel):
-    status: str
+    status: Literal["inbox", "reading", "discarded"]
 
 class ShareResponse(BaseModel):
     id: int
@@ -58,6 +58,7 @@ class PreferenceResponse(BaseModel):
     item_id: int
     feedback: str
     keywords: Optional[str] = None
+    score_diff: Optional[float] = None
     created_at: datetime
 
     class Config:
