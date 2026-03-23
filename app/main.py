@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.templating import Jinja2Templates
 from app.database import init_db, get_session
 from app.models import Item
-from app.routes import feeds, items
+from app.routes import feeds, items, exports
 from app.services.scheduler import Scheduler
 from sqlalchemy import select
 
@@ -28,6 +28,7 @@ app.add_middleware(
 # 注册路由
 app.include_router(feeds.router)
 app.include_router(items.router)
+app.include_router(exports.router)
 
 # 启动事件
 @app.on_event("startup")
