@@ -1,9 +1,12 @@
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, HTTPException
+from fastapi.responses import HTMLResponse
+from starlette.requests import Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from app.database import get_session
 from app.models import Item
 from app.schemas import ItemResponse, ItemUpdate
+from app.templates_config import templates
 
 router = APIRouter(prefix="/items", tags=["items"])
 
@@ -21,10 +24,20 @@ async def get_items(
     return result.scalars().all()
 
 
-@router.get("/{item_id}", response_model=ItemResponse)
-async def get_item(item_id: int, session: AsyncSession = Depends(get_session)):
+@router.get("/{item_id}", response_class=HTMLResponse)
+async def get_item_detail(
+    item_id: int,
+    request: Request,
+    session: AsyncSession = Depends(get_session)
+):
     result = await session.execute(select(Item).where(Item.id == item_id))
-    return result.scalar_one()
+    item = result.scalar_one_or_none()
+    if not item:
+        raise HTTPException(status_code=404, detail="Item not found")
+
+    return templates.TemplateResponse(
+        request, "item_detail.html", {"item": item}
+    )
 
 
 @router.patch("/{item_id}", response_model=ItemResponse)
@@ -34,7 +47,10 @@ async def update_item(
     session: AsyncSession = Depends(get_session),
 ):
     result = await session.execute(select(Item).where(Item.id == item_id))
-    item = result.scalar_one()
+    item = result.scalar_one_or_none()
+    if not item:
+        raise HTTPException(status_code=404, detail="Item not found")
+
     item.status = update.status
     await session.commit()
     await session.refresh(item)

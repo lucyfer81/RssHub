@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+
+{% block title %}{{ item.title_zh or item.title }} - RssHub{% endblock %}
+
+{% block content %}
+<div class="item-detail">
+    <div class="item-header">
+        <h1>{{ item.title_zh or item.title }}</h1>
+        {% if item.title_zh and item.title != item.title_zh %}
+        <div class="original-title">原文：{{ item.title }}</div>
+        {% endif %}
+        <div class="item-info">
+            {% if item.score_summary %}
+            <span class="score {% if item.score_summary >= 70 %}high{% elif item.score_summary >= 40 %}medium{% else %}low{% endif %}">{{ item.score_summary|int }}分</span>
+            {% endif %}
+            {% if item.published_at %}
+            <span class="date">{{ item.published_at.strftime('%Y-%m-%d %H:%M') }}</span>
+            {% endif %}
+            <a href="{{ item.link }}" target="_blank" class="original-link">查看原文</a>
+        </div>
+    </div>
+
+    <div class="content-section">
+        <h3>摘要</h3>
+        <div class="markdown-content">
+            {{ (item.summary_zh or item.summary) | markdown | safe }}
+        </div>
+    </div>
+
+    {% if item.content %}
+    <div class="content-section">
+        <h3>全文{% if item.content_zh %}（中文）{% endif %}</h3>
+        <div class="markdown-content">
+            {{ (item.content_zh or item.content) | markdown | safe }}
+        </div>
+    </div>
+
+    {% if item.content_zh and item.content != item.content_zh %}
+    <details class="original-content">
+        <summary>查看英文原文</summary>
+        <div class="markdown-content">
+            {{ item.content | markdown | safe }}
+        </div>
+    </details>
+    {% endif %}
+    {% endif %}
+
+    <div class="actions">
+        <a href="/inbox" class="btn btn-secondary">返回 Inbox</a>
+        {% if item.status == 'inbox' %}
+        <button class="btn btn-primary" onclick="moveToReading({{ item.id }})">标记为阅读</button>
+        <button class="btn btn-secondary" onclick="discard({{ item.id }})">丢弃</button>
+        {% endif %}
+        <a href="/items/{{ item.id }}/share" class="btn btn-secondary">分享</a>
+        <a href="/items/{{ item.id }}/markdown" class="btn btn-secondary" download>导出 Markdown</a>
+    </div>
+</div>
+
+<script>
+async function moveToReading(id) {
+    const response = await fetch(`/items/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'reading' })
+    });
+    if (response.ok) {
+        window.location.href = '/reading';
+    }
+}
+
+async function discard(id) {
+    const response = await fetch(`/items/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'discarded' })
+    });
+    if (response.ok) {
+        window.location.href = '/inbox';
+    }
+}
+</script>
+{% endblock %}

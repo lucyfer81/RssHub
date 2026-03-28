@@ -1,5 +1,19 @@
 import httpx
+import re
 from app.config import get_settings
+
+
+def is_chinese(text: str) -> bool:
+    """检测文本是否主要是中文"""
+    if not text:
+        return False
+    # 统计中文字符比例
+    chinese_chars = len(re.findall(r'[\u4e00-\u9fff]', text))
+    total_chars = len(text.strip())
+    if total_chars == 0:
+        return False
+    # 如果中文字符占比超过50%，认为是中文
+    return chinese_chars / total_chars > 0.5
 
 
 class Translator:
@@ -18,7 +32,11 @@ class Translator:
         if not target_lang or not target_lang.strip():
             raise ValueError("target_lang 不能为空")
 
-        prompt = f"请将以下文本翻译成{target_lang}，只返回翻译结果，不要解释：\n\n{text}"
+        # 如果目标语言是中文且文本已是中文，直接返回
+        if target_lang == "中文" and is_chinese(text):
+            return text
+
+        prompt = f"请将以下文本翻译成{target_lang}。要求：只返回翻译结果，不要解释，不要使用HTML标签，保持原有的Markdown格式。\n\n{text}"
 
         try:
             async with httpx.AsyncClient(timeout=30.0) as client:

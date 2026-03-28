@@ -14,9 +14,10 @@
         <span class="score {% if item.score_summary >= 70 %}high{% elif item.score_summary >= 40 %}medium{% else %}low{% endif %}">{{ item.score_summary|int }}</span>
         {% endif %}
     </div>
-    <div class="item-meta">
-        {{ item.summary_zh or item.summary[:200] }}...
+    <div class="item-meta" id="meta-{{ item.id }}">
+        {{ (item.summary_zh or item.summary)[:300] | markdown | safe }}
     </div>
+    <span class="item-meta-toggle" onclick="toggleMeta({{ item.id }})">展开</span>
     <div class="actions">
         <button class="btn btn-primary" onclick="moveToReading({{ item.id }})">阅读</button>
         <button class="btn btn-secondary" onclick="discard({{ item.id }})">丢弃</button>
@@ -29,6 +30,18 @@
 {% endif %}
 
 <script>
+function toggleMeta(id) {
+    const meta = document.getElementById('meta-' + id);
+    const toggle = meta.nextElementSibling;
+    if (meta.classList.contains('expanded')) {
+        meta.classList.remove('expanded');
+        toggle.textContent = '展开';
+    } else {
+        meta.classList.add('expanded');
+        toggle.textContent = '收起';
+    }
+}
+
 async function moveToReading(id) {
     const response = await fetch(`/items/${id}`, {
         method: 'PATCH',

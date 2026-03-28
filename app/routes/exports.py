@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -11,7 +11,9 @@ router = APIRouter(prefix="/exports", tags=["exports"])
 @router.post("/items/{item_id}/markdown")
 async def export_markdown(item_id: int, session: AsyncSession = Depends(get_session)):
     result = await session.execute(select(Item).where(Item.id == item_id))
-    item = result.scalar_one()
+    item = result.scalar_one_or_none()
+    if not item:
+        raise HTTPException(status_code=404, detail="Item not found")
 
     markdown = f"""# {item.title_zh or item.title}
 

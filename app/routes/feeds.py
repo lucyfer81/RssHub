@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from app.database import get_session
 from app.models import Feed
 from app.schemas import FeedCreate, FeedResponse
@@ -19,9 +20,13 @@ async def create_feed(feed: FeedCreate, session: AsyncSession = Depends(get_sess
     """创建新的 RSS 源"""
     db_feed = Feed(**feed.model_dump())
     session.add(db_feed)
-    await session.commit()
-    await session.refresh(db_feed)
-    return db_feed
+    try:
+        await session.commit()
+        await session.refresh(db_feed)
+        return db_feed
+    except IntegrityError:
+        await session.rollback()
+        raise HTTPException(status_code=409, detail="Feed with this URL already exists")
 
 @router.post("/{feed_id}/sync")
 async def sync_feed(feed_id: int, session: AsyncSession = Depends(get_session)):

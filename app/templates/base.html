@@ -13,7 +13,15 @@
         .nav a.active { background: #e3f2fd; color: #1976d2; }
         .item { border-bottom: 1px solid #eee; padding: 15px 0; }
         .item-title { font-size: 18px; margin-bottom: 5px; font-weight: 500; }
-        .item-meta { font-size: 14px; color: #666; margin-bottom: 10px; }
+        .item-meta { font-size: 14px; color: #666; margin-bottom: 10px; max-height: 4.5em; overflow: hidden; position: relative; }
+        .item-meta.expanded { max-height: none; }
+        .item-meta p { margin: 0 0 8px 0; }
+        .item-meta ul, .item-meta ol { margin: 0; padding-left: 20px; }
+        .item-meta blockquote { margin: 5px 0; padding-left: 10px; border-left: 2px solid #ddd; color: #888; }
+        .item-meta a { color: #1976d2; }
+        .item-meta code { background: #f5f5f5; padding: 1px 4px; border-radius: 3px; }
+        .item-meta-toggle { color: #1976d2; cursor: pointer; font-size: 13px; margin-top: 5px; display: inline-block; }
+        .item-meta-toggle:hover { text-decoration: underline; }
         .score { background: #4CAF50; color: white; padding: 2px 8px; border-radius: 4px; font-size: 12px; margin-left: 8px; }
         .score.high { background: #4CAF50; }
         .score.medium { background: #FFC107; color: #333; }
@@ -25,6 +33,53 @@
         .btn-secondary:hover { background: #e0e0e0; }
         .actions { margin-top: 10px; }
         .actions .btn { margin-right: 8px; }
+
+        /* 详情页样式 */
+        .item-detail { max-width: 800px; }
+        .item-header { margin-bottom: 30px; padding-bottom: 20px; border-bottom: 1px solid #eee; }
+        .item-header h1 { margin: 0 0 10px 0; font-size: 28px; line-height: 1.3; }
+        .original-title { color: #888; font-size: 14px; margin-bottom: 10px; }
+        .item-info { display: flex; align-items: center; gap: 15px; font-size: 14px; }
+        .date { color: #666; }
+        .original-link { color: #1976d2; text-decoration: none; }
+        .original-link:hover { text-decoration: underline; }
+        .content-section { margin-bottom: 30px; }
+        .content-section h3 { color: #333; margin-bottom: 15px; padding-bottom: 10px; border-bottom: 1px solid #eee; }
+
+        /* Markdown 内容样式 */
+        .markdown-content { line-height: 1.8; }
+        .markdown-content h1, .markdown-content h2, .markdown-content h3,
+        .markdown-content h4, .markdown-content h5, .markdown-content h6 {
+            margin: 20px 0 10px 0; line-height: 1.3;
+        }
+        .markdown-content h1 { font-size: 24px; }
+        .markdown-content h2 { font-size: 20px; }
+        .markdown-content h3 { font-size: 18px; }
+        .markdown-content p { margin: 0 0 15px 0; }
+        .markdown-content ul, .markdown-content ol { margin: 0 0 15px 0; padding-left: 25px; }
+        .markdown-content li { margin-bottom: 5px; }
+        .markdown-content blockquote {
+            margin: 15px 0; padding: 10px 15px; border-left: 4px solid #1976d2;
+            background: #f5f5f5; color: #555;
+        }
+        .markdown-content code {
+            background: #f5f5f5; padding: 2px 6px; border-radius: 3px;
+            font-family: "SFMono-Regular", Consolas, monospace; font-size: 0.9em;
+        }
+        .markdown-content pre {
+            background: #2d2d2d; color: #f8f8f2; padding: 15px; border-radius: 5px;
+            overflow-x: auto; margin: 15px 0;
+        }
+        .markdown-content pre code { background: none; padding: 0; color: inherit; }
+        .markdown-content a { color: #1976d2; }
+        .markdown-content a:hover { text-decoration: underline; }
+        .markdown-content img { max-width: 100%; height: auto; border-radius: 5px; }
+        .markdown-content table { border-collapse: collapse; width: 100%; margin: 15px 0; }
+        .markdown-content th, .markdown-content td { border: 1px solid #ddd; padding: 8px 12px; text-align: left; }
+        .markdown-content th { background: #f5f5f5; }
+
+        .original-content { margin-top: 20px; }
+        .original-content summary { cursor: pointer; color: #1976d2; padding: 10px 0; }
     </style>
 </head>
 <body>

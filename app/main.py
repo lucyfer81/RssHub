@@ -1,14 +1,11 @@
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.templating import Jinja2Templates
 from app.database import init_db, get_session
 from app.models import Item
 from app.routes import feeds, items, exports, shares
 from app.services.scheduler import Scheduler
+from app.templates_config import templates
 from sqlalchemy import select
-
-# 模板
-templates = Jinja2Templates(directory="app/templates")
 
 # 调度器
 scheduler = Scheduler()
@@ -51,15 +48,30 @@ async def root():
 async def health_check():
     return {"status": "ok"}
 
+@app.get("/debug/scheduler")
+async def debug_scheduler():
+    """调试端点：检查调度器状态"""
+    from app.config import get_settings
+    settings = get_settings()
+    return {
+        "scheduler_enabled": settings.scheduler_enabled,
+        "sync_interval_hours": settings.sync_interval_hours,
+        "apscheduler_running": scheduler.scheduler.running,
+        "apscheduler_jobs": len(scheduler.scheduler.get_jobs())
+    }
+
+@app.post("/sync")
+async def manual_sync():
+    """手动触发同步所有 RSS 源"""
+    try:
+        await scheduler.sync_feeds()
+        return {"status": "success", "message": "同步完成"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
 # Inbox 页面
 @app.get("/inbox")
 async def inbox(request: Request):
-    from app.database import get_session
-    from fastapi.templating import Jinja2Templates
-
-    # 每次请求创建新的 templates 对象
-    templates = Jinja2Templates(directory="app/templates")
-
     async for session in get_session():
         result = await session.execute(
             select(Item)
@@ -68,9 +80,8 @@ async def inbox(request: Request):
         )
         items = result.scalars().all()
         break
-    # Starlette 1.0.0+ 需要传递 request 作为第一个参数
     return templates.TemplateResponse(request, "inbox.html", {"items": items})
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="0.0.0.0", port=5005)
