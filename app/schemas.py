@@ -41,7 +41,7 @@ class ItemResponse(ItemBase):
         from_attributes = True
 
 class ItemUpdate(BaseModel):
-    status: Literal["inbox", "reading", "discarded"]
+    status: Literal["inbox", "reading", "read", "discarded"]
 
 class ShareResponse(BaseModel):
     id: int

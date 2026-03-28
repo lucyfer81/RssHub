@@ -40,3 +40,46 @@ async def test_update_item(client: AsyncClient, db_session):
     assert response.status_code == 200
     data = response.json()
     assert data["status"] == "reading"
+
+@pytest.mark.asyncio
+async def test_update_item_to_read(client: AsyncClient, db_session):
+    """测试将文章标记为已读"""
+    feed = Feed(name="测试 Feed", url="https://read-status.example.com/rss")
+    db_session.add(feed)
+    await db_session.flush()
+
+    item = Item(
+        feed_id=feed.id,
+        title="测试文章",
+        link="https://read-status.example.com/article",
+        dedupe_key="read_status_1",
+        status="reading",
+    )
+    db_session.add(item)
+    await db_session.commit()
+
+    response = await client.patch(f"/items/{item.id}", json={"status": "read"})
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "read"
+
+@pytest.mark.asyncio
+async def test_item_has_new_fields(client: AsyncClient, db_session):
+    """测试 Item 响应包含 key_points 和 read_time_minutes"""
+    feed = Feed(name="测试 Feed", url="https://fields.example.com/rss")
+    db_session.add(feed)
+    await db_session.flush()
+
+    item = Item(
+        feed_id=feed.id,
+        title="测试文章",
+        link="https://fields.example.com/article",
+        dedupe_key="fields_test_1",
+        key_points='["要点1", "要点2"]',
+        read_time_minutes=5,
+    )
+    db_session.add(item)
+    await db_session.commit()
+
+    response = await client.get(f"/items/{item.id}")
+    assert response.status_code == 200
