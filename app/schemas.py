@@ -32,6 +32,8 @@ class ItemResponse(ItemBase):
     content: Optional[str] = None
     content_zh: Optional[str] = None
     summary_ai: Optional[str] = None
+    key_points: Optional[str] = None
+    read_time_minutes: Optional[int] = None
     score_summary: Optional[float] = None
     score_full: Optional[float] = None
     status: str

@@ -32,6 +32,8 @@ class Item(Base):
     content = Column(Text)
     content_zh = Column(Text)
     summary_ai = Column(Text)
+    key_points = Column(Text)  # JSON 格式，AI 提取的关键要点
+    read_time_minutes = Column(Integer)  # 预估阅读时长（分钟）
 
     # 评分
     score_summary = Column(Float)
