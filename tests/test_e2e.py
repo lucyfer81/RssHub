@@ -6,6 +6,7 @@ import pytest_asyncio
 from httpx import AsyncClient, ASGITransport
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from unittest.mock import patch
 
 from app.models import Feed, Item, Share
 
@@ -137,21 +138,22 @@ class TestE2EWorkflow:
         assert all(item["status"] == "inbox" for item in inbox_items)
         print(f"✅ 筛选收件箱文章: {len(inbox_items)} 篇")
 
-        # 获取特定文章
+        # 获取特定文章（返回 HTML 详情页）
         item_id = created_items[0].id
         response = await client.get(f"/items/{item_id}")
         assert response.status_code == 200
-        item = response.json()
-        assert item["title"] == "E2E 测试文章 1"
-        print(f"✅ 获取特定文章成功: ID={item_id}")
+        assert "text/html" in response.headers.get("content-type", "")
+        assert "E2E 测试文章 1" in response.text
+        print(f"✅ 获取特定文章详情页成功: ID={item_id}")
 
         # ========== 6. 更新文章状态 ==========
-        # 标记为正在阅读
-        response = await client.patch(f"/items/{item_id}", json={"status": "reading"})
+        # 标记为正在阅读（mock pipeline 避免调用真实 API）
+        with patch("app.routes.items.asyncio.create_task"):
+            response = await client.patch(f"/items/{item_id}", json={"status": "reading"})
         assert response.status_code == 200
         updated_item = response.json()
         assert updated_item["status"] == "reading"
-        print(f"✅ 更新文章状态为 reading")
+        print("✅ 更新文章状态为 reading")
 
         # 标记为已丢弃
         response = await client.patch(f"/items/{item_id}", json={"status": "discarded"})

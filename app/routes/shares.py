@@ -42,6 +42,5 @@ async def share_page(code: str, request: Request):
         item_result = await session.execute(select(Item).where(Item.id == share.item_id))
         item = item_result.scalar_one()
 
-    from fastapi.templating import Jinja2Templates
-    templates = Jinja2Templates(directory="app/templates")
+    from app.templates_config import templates
     return templates.TemplateResponse(request, "share.html", {"item": item})
