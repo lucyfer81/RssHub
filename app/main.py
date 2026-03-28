@@ -82,6 +82,18 @@ async def inbox(request: Request):
         break
     return templates.TemplateResponse(request, "inbox.html", {"items": items})
 
+@app.get("/reading")
+async def reading(request: Request):
+    async for session in get_session():
+        result = await session.execute(
+            select(Item)
+            .where(Item.status == "reading")
+            .order_by(Item.score_summary.desc())
+        )
+        items = result.scalars().all()
+        break
+    return templates.TemplateResponse(request, "reading.html", {"items": items, "active_nav": "reading"})
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=5005)

@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+
+{% block title %}待阅读 - RssHub{% endblock %}
+
+{% block content %}
+<h2>待阅读 ({{ items|length }})</h2>
+
+{% if items %}
+{% for item in items %}
+<div class="item">
+    <div class="item-title">
+        {{ item.title_zh or item.title }}
+        {% if item.score_summary %}
+        <span class="score {% if item.score_summary >= 70 %}high{% elif item.score_summary >= 40 %}medium{% else %}low{% endif %}">{{ item.score_summary|int }}</span>
+        {% endif %}
+        {% if item.read_time_minutes %}
+        <span class="read-time">~{{ item.read_time_minutes }}分钟</span>
+        {% endif %}
+    </div>
+    {% if item.summary_ai %}
+    <div class="item-meta expanded">
+        <strong>AI 摘要：</strong>{{ item.summary_ai }}
+    </div>
+    {% elif item.summary_zh or item.summary %}
+    <div class="item-meta" id="meta-{{ item.id }}">
+        {{ (item.summary_zh or item.summary)[:300] | markdown | safe }}
+    </div>
+    <span class="item-meta-toggle" onclick="toggleMeta({{ item.id }})">展开</span>
+    {% endif %}
+    {% if item.key_points %}
+    <div class="key-points">
+        <strong>关键要点：</strong>
+        <ul>
+        {% for point in (item.key_points | from_json) %}
+            <li>{{ point }}</li>
+        {% endfor %}
+        </ul>
+    </div>
+    {% endif %}
+    <div class="actions">
+        <a href="/items/{{ item.id }}" class="btn btn-primary">阅读</a>
+        <button class="btn btn-success" onclick="markRead({{ item.id }})">已读</button>
+        <button class="btn btn-secondary" onclick="discard({{ item.id }})">丢弃</button>
+    </div>
+</div>
+{% endfor %}
+{% else %}
+<p>暂无待阅读文章</p>
+{% endif %}
+
+<script>
+function toggleMeta(id) {
+    const meta = document.getElementById('meta-' + id);
+    const toggle = meta.nextElementSibling;
+    if (meta.classList.contains('expanded')) {
+        meta.classList.remove('expanded');
+        toggle.textContent = '展开';
+    } else {
+        meta.classList.add('expanded');
+        toggle.textContent = '收起';
+    }
+}
+
+async function markRead(id) {
+    const response = await fetch(`/items/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'read' })
+    });
+    if (response.ok) {
+        location.reload();
+    }
+}
+
+async function discard(id) {
+    const response = await fetch(`/items/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'discarded' })
+    });
+    if (response.ok) {
+        location.reload();
+    }
+}
+</script>
+{% endblock %}
