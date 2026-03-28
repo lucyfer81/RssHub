@@ -13,12 +13,35 @@
             {% if item.score_summary %}
             <span class="score {% if item.score_summary >= 70 %}high{% elif item.score_summary >= 40 %}medium{% else %}low{% endif %}">{{ item.score_summary|int }}分</span>
             {% endif %}
+            {% if item.read_time_minutes %}
+            <span class="read-time">~{{ item.read_time_minutes }}分钟阅读</span>
+            {% endif %}
             {% if item.published_at %}
             <span class="date">{{ item.published_at.strftime('%Y-%m-%d %H:%M') }}</span>
             {% endif %}
             <a href="{{ item.link }}" target="_blank" class="original-link">查看原文</a>
         </div>
     </div>
+
+    {% if item.key_points or item.summary_ai %}
+    <div class="ai-info">
+        {% if item.key_points %}
+        <div>
+            <h3>关键要点</h3>
+            <ul class="key-points-list">
+            {% for point in (item.key_points | from_json) %}
+                <li>{{ point }}</li>
+            {% endfor %}
+            </ul>
+        </div>
+        {% endif %}
+        {% if item.summary_ai %}
+        <div style="margin-top: 10px;">
+            <strong>AI 摘要：</strong>{{ item.summary_ai }}
+        </div>
+        {% endif %}
+    </div>
+    {% endif %}
 
     <div class="content-section">
         <h3>摘要</h3>
@@ -46,10 +69,18 @@
     {% endif %}
 
     <div class="actions">
-        <a href="/inbox" class="btn btn-secondary">返回 Inbox</a>
         {% if item.status == 'inbox' %}
+        <a href="/inbox" class="btn btn-secondary">返回 Inbox</a>
         <button class="btn btn-primary" onclick="moveToReading({{ item.id }})">标记为阅读</button>
         <button class="btn btn-secondary" onclick="discard({{ item.id }})">丢弃</button>
+        {% elif item.status == 'reading' %}
+        <a href="/reading" class="btn btn-secondary">返回阅读列表</a>
+        <button class="btn btn-success" onclick="markRead({{ item.id }})">标记已读</button>
+        <button class="btn btn-secondary" onclick="discard({{ item.id }})">丢弃</button>
+        {% elif item.status == 'read' %}
+        <a href="/inbox" class="btn btn-secondary">返回 Inbox</a>
+        {% else %}
+        <a href="/inbox" class="btn btn-secondary">返回 Inbox</a>
         {% endif %}
         <a href="/items/{{ item.id }}/share" class="btn btn-secondary">分享</a>
         <a href="/items/{{ item.id }}/markdown" class="btn btn-secondary" download>导出 Markdown</a>
@@ -62,6 +93,17 @@ async function moveToReading(id) {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: 'reading' })
+    });
+    if (response.ok) {
+        window.location.href = '/reading';
+    }
+}
+
+async function markRead(id) {
+    const response = await fetch(`/items/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'read' })
     });
     if (response.ok) {
         window.location.href = '/reading';

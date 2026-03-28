@@ -80,7 +80,7 @@ async def inbox(request: Request):
         )
         items = result.scalars().all()
         break
-    return templates.TemplateResponse(request, "inbox.html", {"items": items})
+    return templates.TemplateResponse(request, "inbox.html", {"items": items, "active_nav": "inbox"})
 
 @app.get("/reading")
 async def reading(request: Request):
