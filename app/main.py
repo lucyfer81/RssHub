@@ -33,6 +33,16 @@ app.include_router(shares.router)
 @app.on_event("startup")
 async def on_startup():
     await init_db()
+
+    # 同步 sources.yaml → DB
+    from app.services.feed_manager import get_feed_manager
+    from app.database import async_session
+    manager = get_feed_manager()
+    async with async_session() as session:
+        created, updated, disabled = await manager.sync_yaml_to_db(session)
+        if created or updated or disabled:
+            print(f"YAML sync: {created} created, {updated} updated, {disabled} disabled")
+
     scheduler.start()
 
 # 关闭事件
