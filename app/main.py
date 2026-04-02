@@ -1,4 +1,5 @@
 from fastapi import FastAPI, Request
+from fastapi.responses import HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
 from app.database import init_db, get_session
 from app.models import Item
@@ -39,11 +40,6 @@ async def on_startup():
 async def on_shutdown():
     scheduler.stop()
 
-# 健康检查
-@app.get("/")
-async def root():
-    return {"message": "RssHub API", "version": "0.1.0"}
-
 @app.get("/health")
 async def health_check():
     return {"status": "ok"}
@@ -69,30 +65,18 @@ async def manual_sync():
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
-# Inbox 页面
-@app.get("/inbox")
-async def inbox(request: Request):
+# 主页
+@app.get("/", response_class=HTMLResponse)
+async def home(request: Request):
     async for session in get_session():
         result = await session.execute(
             select(Item)
-            .where(Item.status == "inbox")
-            .order_by(Item.score_summary.desc())
+            .where(Item.status == "unread")
+            .order_by(Item.score_full.desc().nullslast(), Item.score_summary.desc())
         )
         items = result.scalars().all()
         break
-    return templates.TemplateResponse(request, "inbox.html", {"items": items, "active_nav": "inbox"})
-
-@app.get("/reading")
-async def reading(request: Request):
-    async for session in get_session():
-        result = await session.execute(
-            select(Item)
-            .where(Item.status == "reading")
-            .order_by(Item.score_summary.desc())
-        )
-        items = result.scalars().all()
-        break
-    return templates.TemplateResponse(request, "reading.html", {"items": items, "active_nav": "reading"})
+    return templates.TemplateResponse(request, "home.html", {"items": items, "active_nav": "home"})
 
 if __name__ == "__main__":
     import uvicorn
