@@ -49,3 +49,37 @@ async def test_score_item_invalid_response():
         score = await scorer.score(title="测试", summary="内容")
 
     assert score == 50.0  # 默认分数
+
+
+@pytest.mark.asyncio
+async def test_score_full():
+    """测试全文评分"""
+    scorer = Scorer()
+
+    mock_client = _make_mock_client({
+        "choices": [{"message": {"content": "78.5"}}]
+    })
+
+    with patch("httpx.AsyncClient", return_value=mock_client):
+        score = await scorer.score_full(
+            title="AI 的未来",
+            content="这是一篇关于人工智能的深度分析文章" * 100,
+        )
+
+    assert 0 <= score <= 100
+    assert score == 78.5
+
+
+@pytest.mark.asyncio
+async def test_score_full_invalid_response():
+    """测试全文评分返回非数字时的默认值"""
+    scorer = Scorer()
+
+    mock_client = _make_mock_client({
+        "choices": [{"message": {"content": "无法评分"}}]
+    })
+
+    with patch("httpx.AsyncClient", return_value=mock_client):
+        score = await scorer.score_full(title="测试", content="测试内容")
+
+    assert score == 50.0  # 默认分数

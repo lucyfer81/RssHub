@@ -12,7 +12,7 @@ async def test_get_items(client: AsyncClient):
 @pytest.mark.asyncio
 async def test_get_items_with_status(client: AsyncClient):
     """测试按状态筛选文章"""
-    response = await client.get("/items?status=inbox")
+    response = await client.get("/items?status=unread")
     assert response.status_code == 200
     assert isinstance(response.json(), list)
 
@@ -35,11 +35,11 @@ async def test_update_item(client: AsyncClient, db_session):
     await db_session.commit()
 
     # 更新状态
-    update_data = {"status": "reading"}
+    update_data = {"status": "read"}
     response = await client.patch(f"/items/{item.id}", json=update_data)
     assert response.status_code == 200
     data = response.json()
-    assert data["status"] == "reading"
+    assert data["status"] == "read"
 
 @pytest.mark.asyncio
 async def test_update_item_to_read(client: AsyncClient, db_session):
@@ -53,7 +53,7 @@ async def test_update_item_to_read(client: AsyncClient, db_session):
         title="测试文章",
         link="https://read-status.example.com/article",
         dedupe_key="read_status_1",
-        status="reading",
+        status="unread",
     )
     db_session.add(item)
     await db_session.commit()

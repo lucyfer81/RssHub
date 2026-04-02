@@ -6,8 +6,6 @@ import pytest_asyncio
 from httpx import AsyncClient, ASGITransport
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from unittest.mock import patch
-
 from app.models import Feed, Item, Share
 
 
@@ -87,9 +85,7 @@ class TestE2EWorkflow:
                 "link": "https://e2e-test.example.com/article-2",
                 "summary": "这是第二篇测试文章的摘要",
                 "published_at": datetime.now() - timedelta(hours=1),
-                "score_summary": 75.0,
-                "title_zh": "E2E 测试文章 2（中文标题）",
-                "summary_zh": "这是第二篇文章的中文摘要"
+                "score_summary": 75.0
             },
             {
                 "title": "E2E 测试文章 3",
@@ -111,8 +107,6 @@ class TestE2EWorkflow:
                 summary=item_data.get("summary"),
                 published_at=item_data.get("published_at"),
                 score_summary=item_data.get("score_summary"),
-                title_zh=item_data.get("title_zh"),
-                summary_zh=item_data.get("summary_zh"),
                 content=item_data.get("content"),
                 summary_ai=item_data.get("summary_ai"),
                 dedupe_key=f"e2e_{item_data['link']}"
@@ -132,11 +126,11 @@ class TestE2EWorkflow:
         print(f"✅ 获取文章列表成功: {len(items)} 篇文章")
 
         # 按状态筛选
-        response = await client.get("/items?status=inbox")
+        response = await client.get("/items?status=unread")
         assert response.status_code == 200
-        inbox_items = response.json()
-        assert all(item["status"] == "inbox" for item in inbox_items)
-        print(f"✅ 筛选收件箱文章: {len(inbox_items)} 篇")
+        unread_items = response.json()
+        assert all(item["status"] == "unread" for item in unread_items)
+        print(f"✅ 筛选未读文章: {len(unread_items)} 篇")
 
         # 获取特定文章（返回 HTML 详情页）
         item_id = created_items[0].id
@@ -147,22 +141,21 @@ class TestE2EWorkflow:
         print(f"✅ 获取特定文章详情页成功: ID={item_id}")
 
         # ========== 6. 更新文章状态 ==========
-        # 标记为正在阅读（mock pipeline 避免调用真实 API）
-        with patch("app.routes.items.asyncio.create_task"):
-            response = await client.patch(f"/items/{item_id}", json={"status": "reading"})
+        # 标记为已读
+        response = await client.patch(f"/items/{item_id}", json={"status": "read"})
         assert response.status_code == 200
         updated_item = response.json()
-        assert updated_item["status"] == "reading"
-        print("✅ 更新文章状态为 reading")
+        assert updated_item["status"] == "read"
+        print("✅ 更新文章状态为 read")
 
-        # 标记为已丢弃
-        response = await client.patch(f"/items/{item_id}", json={"status": "discarded"})
+        # 标记为未读
+        response = await client.patch(f"/items/{item_id}", json={"status": "read"})
         assert response.status_code == 200
-        assert response.json()["status"] == "discarded"
-        print(f"✅ 更新文章状态为 discarded")
+        assert response.json()["status"] == "read"
+        print(f"✅ 更新文章状态为 read")
 
-        # 重新改回 inbox
-        response = await client.patch(f"/items/{item_id}", json={"status": "inbox"})
+        # 重新改回 unread
+        response = await client.patch(f"/items/{item_id}", json={"status": "unread"})
         assert response.status_code == 200
 
         # ========== 7. 创建分享链接 ==========
