@@ -25,6 +25,7 @@ class Settings(BaseSettings):
     # RSS 抓取
     max_items_per_feed: int = 50
     fetch_timeout: int = 30
+    sources_yaml_path: str = "sources.yaml"
 
     # Jina.ai
     jina_rate_limit_seconds: int = 2
