@@ -15,13 +15,13 @@ async def export_markdown(item_id: int, session: AsyncSession = Depends(get_sess
     if not item:
         raise HTTPException(status_code=404, detail="Item not found")
 
-    markdown = f"""# {item.title_zh or item.title}
+    markdown = f"""# {item.title}
 
 **原文链接**: {item.link}
 
 ## 摘要
 
-{item.summary_zh or item.summary}
+{item.summary or '暂无'}
 
 ## AI 总结
 
@@ -29,7 +29,7 @@ async def export_markdown(item_id: int, session: AsyncSession = Depends(get_sess
 
 ## 全文
 
-{item.content_zh or item.content}
+{item.content or '暂无'}
 
 ---
 
