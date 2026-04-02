@@ -27,13 +27,11 @@ class ItemBase(BaseModel):
 class ItemResponse(ItemBase):
     id: int
     feed_id: int
-    title_zh: Optional[str] = None
-    summary_zh: Optional[str] = None
     content: Optional[str] = None
-    content_zh: Optional[str] = None
     summary_ai: Optional[str] = None
     key_points: Optional[str] = None
     read_time_minutes: Optional[int] = None
+    article_path: Optional[str] = None
     score_summary: Optional[float] = None
     score_full: Optional[float] = None
     status: str
@@ -43,7 +41,7 @@ class ItemResponse(ItemBase):
         from_attributes = True
 
 class ItemUpdate(BaseModel):
-    status: Literal["inbox", "reading", "read", "discarded"]
+    status: Literal["read", "unread"]
 
 class ShareResponse(BaseModel):
     id: int
