@@ -1,17 +1,15 @@
 {% extends "base.html" %}
 
-{% block title %}{{ item.title_zh or item.title }} - RssHub{% endblock %}
+{% block title %}{{ item.title }} - RssHub{% endblock %}
 
 {% block content %}
 <div class="item-detail">
     <div class="item-header">
-        <h1>{{ item.title_zh or item.title }}</h1>
-        {% if item.title_zh and item.title != item.title_zh %}
-        <div class="original-title">原文：{{ item.title }}</div>
-        {% endif %}
+        <h1>{{ item.title }}</h1>
         <div class="item-info">
-            {% if item.score_summary %}
-            <span class="score {% if item.score_summary >= 70 %}high{% elif item.score_summary >= 40 %}medium{% else %}low{% endif %}">{{ item.score_summary|int }}分</span>
+            {% set score = item.score_full or item.score_summary %}
+            {% if score %}
+            <span class="score {% if score >= 70 %}high{% elif score >= 40 %}medium{% else %}low{% endif %}">{{ score|int }}分</span>
             {% endif %}
             {% if item.read_time_minutes %}
             <span class="read-time">~{{ item.read_time_minutes }}分钟阅读</span>
@@ -46,41 +44,28 @@
     <div class="content-section">
         <h3>摘要</h3>
         <div class="markdown-content">
-            {{ (item.summary_zh or item.summary) | markdown | safe }}
+            {{ item.summary | markdown | safe }}
         </div>
     </div>
 
     {% if item.content %}
     <div class="content-section">
-        <h3>全文{% if item.content_zh %}（中文）{% endif %}</h3>
-        <div class="markdown-content">
-            {{ (item.content_zh or item.content) | markdown | safe }}
-        </div>
-    </div>
-
-    {% if item.content_zh and item.content != item.content_zh %}
-    <details class="original-content">
-        <summary>查看英文原文</summary>
+        <h3>全文</h3>
         <div class="markdown-content">
             {{ item.content | markdown | safe }}
         </div>
-    </details>
-    {% endif %}
+    </div>
     {% endif %}
 
     <div class="actions">
-        {% if item.status == 'inbox' %}
-        <a href="/inbox" class="btn btn-secondary">返回 Inbox</a>
-        <button class="btn btn-primary" onclick="moveToReading({{ item.id }})">标记为阅读</button>
-        <button class="btn btn-secondary" onclick="discard({{ item.id }})">丢弃</button>
-        {% elif item.status == 'reading' %}
-        <a href="/reading" class="btn btn-secondary">返回阅读列表</a>
-        <button class="btn btn-success" onclick="markRead({{ item.id }})">标记已读</button>
+        {% if item.status == 'unread' %}
+        <a href="/" class="btn btn-secondary">返回首页</a>
+        <button class="btn btn-success" onclick="markRead({{ item.id }})">已读</button>
         <button class="btn btn-secondary" onclick="discard({{ item.id }})">丢弃</button>
         {% elif item.status == 'read' %}
-        <a href="/inbox" class="btn btn-secondary">返回 Inbox</a>
+        <a href="/" class="btn btn-secondary">返回首页</a>
         {% else %}
-        <a href="/inbox" class="btn btn-secondary">返回 Inbox</a>
+        <a href="/" class="btn btn-secondary">返回首页</a>
         {% endif %}
         <a href="/items/{{ item.id }}/share" class="btn btn-secondary">分享</a>
         <a href="/items/{{ item.id }}/markdown" class="btn btn-secondary" download>导出 Markdown</a>
@@ -88,17 +73,6 @@
 </div>
 
 <script>
-async function moveToReading(id) {
-    const response = await fetch(`/items/${id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: 'reading' })
-    });
-    if (response.ok) {
-        window.location.href = '/reading';
-    }
-}
-
 async function markRead(id) {
     const response = await fetch(`/items/${id}`, {
         method: 'PATCH',
@@ -106,7 +80,7 @@ async function markRead(id) {
         body: JSON.stringify({ status: 'read' })
     });
     if (response.ok) {
-        window.location.href = '/reading';
+        window.location.href = '/';
     }
 }
 
@@ -114,10 +88,10 @@ async function discard(id) {
     const response = await fetch(`/items/${id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: 'discarded' })
+        body: JSON.stringify({ status: 'read' })
     });
     if (response.ok) {
-        window.location.href = '/inbox';
+        window.location.href = '/';
     }
 }
 </script>
