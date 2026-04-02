@@ -13,6 +13,7 @@ from app.services.scorer import Scorer
 from app.services.content_fetcher import ContentFetcher
 from app.services.summarizer import Summarizer
 from app.services.article_store import ArticleStore
+from app.services.feed_manager import get_feed_manager
 
 settings = get_settings()
 
@@ -39,25 +40,38 @@ class Scheduler:
         """Phase 1: RSS Fetch + Summary Scoring (lightweight)"""
         print(f"[{datetime.now()}] Phase 1: 抓取 RSS + 摘要评分...")
 
-        async with async_session() as session:
-            # 获取所有启用的 RSS 源
-            result = await session.execute(
-                select(Feed).where(Feed.enabled == True)
-            )
-            feeds = result.scalars().all()
+        manager = get_feed_manager()
+        yaml_feeds = manager.read_yaml()
+        enabled_feeds = [f for f in yaml_feeds if f.enabled]
 
-            if not feeds:
-                print("  没有启用的 RSS 源")
-                return
+        if not enabled_feeds:
+            print("  没有启用的 RSS 源")
+            return
+
+        async with async_session() as session:
+            # Build URL -> DB Feed lookup
+            urls = [f.url for f in enabled_feeds]
+            result = await session.execute(
+                select(Feed).where(Feed.url.in_(urls))
+            )
+            db_feeds_by_url = {f.url: f for f in result.scalars().all()}
 
             total_new_items = 0
 
-            for feed in feeds:
+            for yaml_feed in enabled_feeds:
                 try:
-                    print(f"  正在抓取: {feed.name} ({feed.url})")
+                    feed = db_feeds_by_url.get(yaml_feed.url)
+                    if feed is None:
+                        # Create DB row on the fly
+                        feed = Feed(name=yaml_feed.name, url=yaml_feed.url, enabled=True)
+                        session.add(feed)
+                        await session.flush()
+                        db_feeds_by_url[yaml_feed.url] = feed
+
+                    print(f"  正在抓取: {yaml_feed.name} ({yaml_feed.url})")
 
                     # 抓取 RSS 内容
-                    items_data = await self.fetcher.fetch(feed.url)
+                    items_data = await self.fetcher.fetch(yaml_feed.url)
 
                     if not items_data:
                         print(f"    - 未获取到内容")
