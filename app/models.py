@@ -24,23 +24,19 @@ class Item(Base):
     summary = Column(Text)
     published_at = Column(DateTime)
 
-    # 翻译内容
-    title_zh = Column(String)
-    summary_zh = Column(Text)
-
     # 全文内容
     content = Column(Text)
-    content_zh = Column(Text)
     summary_ai = Column(Text)
     key_points = Column(Text)  # JSON 格式，AI 提取的关键要点
     read_time_minutes = Column(Integer)  # 预估阅读时长（分钟）
+    article_path = Column(String)  # 相对路径，如 "2026-04-02/slug.md"
 
     # 评分
     score_summary = Column(Float)
     score_full = Column(Float)
 
     # 状态
-    status = Column(String, default="inbox")  # inbox/reading/discarded
+    status = Column(String, default="unread")
 
     # 向量
     embedding_id = Column(String)
@@ -54,7 +50,7 @@ class Item(Base):
     __table_args__ = (
         Index('idx_item_feed_status', 'feed_id', 'status'),
         Index('idx_item_published', 'published_at'),
-        Index('idx_item_status_score', 'status', 'score_summary'),
+        Index('idx_item_status_score', 'status', 'score_full'),
     )
 
 class Preference(Base):
