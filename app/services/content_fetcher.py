@@ -3,7 +3,7 @@ import asyncio
 import time
 from typing import Optional
 from bs4 import BeautifulSoup
-from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeout
+from patchright.async_api import async_playwright, TimeoutError as PatchrightTimeout
 from app.config import get_settings
 
 settings = get_settings()
@@ -12,7 +12,7 @@ settings = get_settings()
 class ContentFetcher:
     """多级回退策略抓取全文内容
     1. requests + BeautifulSoup (最快，静态页面)
-    2. playwright (JS渲染页面)
+    2. patchright (undetected playwright，绕过反爬)
     3. Jina.ai (保底)
     """
 
@@ -50,10 +50,10 @@ class ContentFetcher:
             print(f"    ✓ Requests 成功 ({len(content)} 字符)")
             return content
 
-        # 2. 尝试 playwright
-        content = await self._fetch_with_playwright(url)
+        # 2. 尝试 patchright
+        content = await self._fetch_with_patchright(url)
         if content:
-            print(f"    ✓ Playwright 成功 ({len(content)} 字符)")
+            print(f"    ✓ Patchright 成功 ({len(content)} 字符)")
             return content
 
         # 3. 保底：Jina.ai
@@ -123,8 +123,8 @@ class ContentFetcher:
         except Exception as e:
             return None
 
-    async def _fetch_with_playwright(self, url: str) -> Optional[str]:
-        """使用 playwright 抓取 JS 渲染页面"""
+    async def _fetch_with_patchright(self, url: str) -> Optional[str]:
+        """使用 patchright (undetected playwright) 抓取页面"""
         try:
             async with async_playwright() as p:
                 browser = await p.chromium.launch(headless=True)
@@ -136,7 +136,7 @@ class ContentFetcher:
                 await page.goto(url, wait_until="domcontentloaded", timeout=15000)
 
                 # 等待内容加载
-                await asyncio.sleep(1)
+                await asyncio.sleep(3)
 
                 content = await page.evaluate("""() => {
                     // 移除不需要的元素
@@ -181,7 +181,7 @@ class ContentFetcher:
 
                 return None
 
-        except (PlaywrightTimeout, Exception) as e:
+        except (PatchrightTimeout, Exception) as e:
             return None
 
     async def _fetch_with_jina(self, url: str) -> Optional[str]:
