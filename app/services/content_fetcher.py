@@ -1,9 +1,10 @@
 import httpx
 import asyncio
+import random
 import time
 from typing import Optional
 from bs4 import BeautifulSoup
-from patchright.async_api import async_playwright, TimeoutError as PatchrightTimeout
+from markdownify import markdownify as md
 from app.config import get_settings
 
 settings = get_settings()
@@ -103,15 +104,15 @@ class ContentFetcher:
             for selector in selectors:
                 element = soup.select_one(selector)
                 if element:
-                    content = element.get_text(separator="\n", strip=True)
-                    if len(content) > 200:  # 确保内容足够长
+                    content = md(str(element), heading_style="ATX", strip=["img"])
+                    if len(content) > 200:
                         break
 
             # 如果没找到特定区域，使用 body
             if not content or len(content) < 200:
                 body = soup.find("body")
                 if body:
-                    content = body.get_text(separator="\n", strip=True)
+                    content = md(str(body), heading_style="ATX", strip=["img"])
 
             if content and len(content) > 100:
                 # 清理多余空白
@@ -124,8 +125,9 @@ class ContentFetcher:
             return None
 
     async def _fetch_with_patchright(self, url: str) -> Optional[str]:
-        """使用 patchright (undetected playwright) 抓取页面"""
+        """使用 patchright (undetected playwright) 抓取页面，返回 Markdown"""
         try:
+            from patchright.async_api import async_playwright
             async with async_playwright() as p:
                 browser = await p.chromium.launch(headless=True)
                 context = await browser.new_context(
@@ -134,18 +136,15 @@ class ContentFetcher:
                 page = await context.new_page()
 
                 await page.goto(url, wait_until="domcontentloaded", timeout=15000)
-
-                # 等待内容加载
                 await asyncio.sleep(3)
 
-                content = await page.evaluate("""() => {
-                    // 移除不需要的元素
-                    const selectors = ['script', 'style', 'nav', 'header', 'footer', 'aside', 'iframe', '.sidebar', '.navigation'];
-                    selectors.forEach(s => {
+                # 获取 HTML 而非纯文本
+                html_content = await page.evaluate("""() => {
+                    const removeSelectors = ['script', 'style', 'nav', 'header', 'footer', 'aside', 'iframe', '.sidebar', '.navigation'];
+                    removeSelectors.forEach(s => {
                         document.querySelectorAll(s).forEach(el => el.remove());
                     });
 
-                    // 尝试找到主内容
                     const contentSelectors = [
                         'article',
                         '[role="main"]',
@@ -162,18 +161,17 @@ class ContentFetcher:
                     for (const selector of contentSelectors) {
                         const el = document.querySelector(selector);
                         if (el && el.textContent.length > 200) {
-                            return el.textContent;
+                            return el.innerHTML;
                         }
                     }
-
-                    // 保底使用 body
-                    return document.body.textContent;
+                    return document.body.innerHTML;
                 }""")
 
                 await browser.close()
 
-                if content:
-                    # 清理空白
+                if html_content:
+                    # HTML → Markdown
+                    content = md(html_content, heading_style="ATX", strip=["img"])
                     lines = [line.strip() for line in content.split("\n") if line.strip()]
                     content = "\n".join(lines)
                     if len(content) > 100:
@@ -181,12 +179,11 @@ class ContentFetcher:
 
                 return None
 
-        except (PatchrightTimeout, Exception) as e:
+        except Exception:
             return None
 
     async def _fetch_with_jina(self, url: str) -> Optional[str]:
         """使用 Jina.ai Reader API 作为保底方案"""
-        # 频率控制
         await self._rate_limit()
 
         try:
@@ -194,12 +191,19 @@ class ContentFetcher:
             jina_url = f"https://r.jina.ai/{url}"
             response = await session.get(jina_url)
             response.raise_for_status()
-            return response.text
+            result = response.text
         except Exception as e:
-            return None
+            result = None
+        finally:
+            # 无论成败，使用过 Jina 就随机休眠 0~10 秒，避免触发限流
+            delay = random.uniform(0, 10)
+            print(f"    Jina 完成，随机休眠 {delay:.1f}s")
+            await asyncio.sleep(delay)
+
+        return result
 
     async def _rate_limit(self):
-        """Jina.ai 频率控制"""
+        """Jina.ai 频率控制：保证两次调用间至少间隔 jina_rate_limit 秒"""
         async with self._lock:
             if self._last_jina_fetch:
                 elapsed = time.monotonic() - self._last_jina_fetch

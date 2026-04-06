@@ -1,3 +1,3 @@
 sources:
-  - name: "Planet AI"
-    url: "https://planet-ai.net/rss.xml"
+- name: Planet AI
+  url: https://planet-ai.net/rss.xml
