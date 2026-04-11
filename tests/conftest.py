@@ -9,10 +9,10 @@ from sqlalchemy import text
 # 设置测试环境变量
 os.environ["DATABASE_URL"] = "sqlite+aiosqlite:///./data/test_rsshub.db"
 os.environ["LLM_API_KEY"] = "test_key"
-os.environ["LLM_API_BASE"] = "https://api.example.com/v1"
+os.environ["LLM_BASE_URL"] = "https://api.example.com/v1"
 os.environ["LLM_MODEL"] = "test_model"
 os.environ["EMBEDDING_API_KEY"] = "test_key"
-os.environ["EMBEDDING_API_BASE"] = "https://api.example.com/v1"
+os.environ["EMBEDDING_BASE_URL"] = "https://api.example.com/v1"
 os.environ["EMBEDDING_MODEL"] = "test_model"
 
 from app.database import Base, get_session

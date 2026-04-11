@@ -1,0 +1,15 @@
+[Unit]
+Description=RssHub RSS Reader
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/PyProjects/RssHub
+ExecStart=/home/ubuntu/PyProjects/RssHub/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 5005
+Restart=on-failure
+RestartSec=5
+EnvironmentFile=/home/ubuntu/PyProjects/RssHub/.env
+
+[Install]
+WantedBy=multi-user.target
