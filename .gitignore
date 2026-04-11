@@ -47,3 +47,11 @@ Thumbs.db
 *.bak
 *.backup
 *~
+
+# Runtime data
+articles/
+logs/
+.service.pid
+
+# Screenshots
+*.png
